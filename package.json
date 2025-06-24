@@ -1,19 +1,24 @@
 {
   "name": "natural-language-trading-tu",
   "version": "1.0.0",
-  "description": "A natural language trading CLI application for executing stock trades through conversational commands",
+  "description": "A natural language trading application with web interface and CLI",
   "main": "dist/index.js",
   "bin": {
     "nltrade": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
+    "build:frontend": "cd frontend && npm run build",
     "start": "node dist/index.js",
+    "start:server": "node dist/server.js",
+    "start:frontend": "cd frontend && npm run dev",
     "dev": "nodemon --exec ts-node src/index.ts",
+    "dev:server": "nodemon --exec ts-node src/server.ts",
+    "dev:frontend": "cd frontend && npm run dev",
     "type-check": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist && cd frontend && rm -rf dist"
   },
-  "keywords": ["trading", "cli", "natural-language", "stocks", "alpaca"],
+  "keywords": ["trading", "cli", "natural-language", "stocks", "alpaca", "web", "react"],
   "author": "",
   "license": "MIT",
   "dependencies": {
@@ -23,11 +28,17 @@
     "openai": "^4.0.0",
     "dotenv": "^16.0.0",
     "chalk": "^5.0.0",
-    "axios": "^1.0.0"
+    "axios": "^1.0.0",
+    "express": "^4.18.0",
+    "cors": "^2.8.5",
+    "ws": "^8.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/inquirer": "^9.0.0",
+    "@types/express": "^4.17.0",
+    "@types/cors": "^2.8.0",
+    "@types/ws": "^8.0.0",
     "typescript": "^5.0.0",
     "ts-node": "^10.0.0",
     "nodemon": "^3.0.0"

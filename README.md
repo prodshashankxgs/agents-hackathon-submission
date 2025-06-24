@@ -185,11 +185,3 @@ The CLI provides clear error messages for common issues:
 ### TypeScript errors
 - Run `npm run type-check` to see detailed errors
 - Ensure you're using Node.js 18+
-
-## License
-
-MIT License - See LICENSE file for details
-
-## Disclaimer
-
-This software is for educational purposes. Trading stocks involves risk. Always do your own research and never invest more than you can afford to lose. 
