@@ -29,12 +29,25 @@ interface PortfolioOverviewProps {
 export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
   if (!accountInfo) {
     return (
-      <div className="glass-card p-8 text-center">
+      <div className="bg-white rounded-xl p-8 border border-gray-200 shadow-sm text-center">
         <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
           <BarChart3Icon className="w-8 h-8 text-gray-400" />
         </div>
         <h3 className="text-lg font-semibold text-gray-900 mb-2">Loading Portfolio</h3>
         <p className="text-gray-600">Please wait while we fetch your account information...</p>
+        
+        {/* Loading skeleton */}
+        <div className="mt-8 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="p-4 bg-gray-50 rounded-lg">
+                <div className="skeleton h-4 w-20 mb-2"></div>
+                <div className="skeleton h-8 w-16 mb-1"></div>
+                <div className="skeleton h-3 w-24"></div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     )
   }
@@ -49,28 +62,36 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
       value: formatCurrency(accountInfo.portfolioValue),
       icon: DollarSignIcon,
       description: 'Current market value',
-      color: 'text-gray-900'
+      color: 'text-gray-900',
+      bgColor: 'bg-blue-100',
+      iconColor: 'text-blue-600'
     },
     {
       title: 'Available Buying Power',
       value: formatCurrency(accountInfo.buyingPower),
       icon: TrendingUpIcon,
       description: 'Cash available for trading',
-      color: 'text-gray-900'
+      color: 'text-gray-900',
+      bgColor: 'bg-green-100',
+      iconColor: 'text-green-600'
     },
     {
       title: 'Unrealized P&L',
       value: formatCurrency(totalPnL),
       icon: BarChart3Icon,
       description: `${formatPercentage(totalPnLPercent)} total return`,
-      color: totalPnL >= 0 ? 'text-green-600' : 'text-red-600'
+      color: totalPnL >= 0 ? 'text-green-600' : 'text-red-600',
+      bgColor: totalPnL >= 0 ? 'bg-green-100' : 'bg-red-100',
+      iconColor: totalPnL >= 0 ? 'text-green-600' : 'text-red-600'
     },
     {
       title: 'Day Trades Used',
       value: `${accountInfo.dayTradeCount}/3`,
       icon: CalendarDaysIcon,
       description: 'Pattern day trade limit',
-      color: accountInfo.dayTradeCount >= 3 ? 'text-red-600' : 'text-gray-900'
+      color: accountInfo.dayTradeCount >= 3 ? 'text-red-600' : 'text-gray-900',
+      bgColor: accountInfo.dayTradeCount >= 3 ? 'bg-red-100' : 'bg-gray-100',
+      iconColor: accountInfo.dayTradeCount >= 3 ? 'text-red-600' : 'text-gray-600'
     }
   ]
 
@@ -84,7 +105,7 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
   return (
     <div className="space-y-6">
       {/* Account Overview */}
-      <div className="glass-card p-6">
+      <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-2xl font-bold text-gray-900">Portfolio Overview</h2>
@@ -103,10 +124,15 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
           {metrics.map((metric, index) => {
             const Icon = metric.icon
             return (
-              <div key={index} className="metric-card">
+              <div 
+                key={index} 
+                className="bg-white rounded-xl p-6 border border-gray-200 hover:shadow-sm transition-shadow duration-200"
+              >
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-sm font-medium text-gray-600">{metric.title}</p>
-                  <Icon className="w-5 h-5 text-gray-400" />
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${metric.bgColor}`}>
+                    <Icon className={`w-4 h-4 ${metric.iconColor}`} />
+                  </div>
                 </div>
                 <p className={`text-2xl font-bold ${metric.color}`}>
                   {metric.value}
@@ -122,7 +148,7 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
 
       {/* Position Breakdown */}
       {accountInfo.positions.length > 0 && (
-        <div className="glass-card p-6">
+        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-semibold text-gray-900 flex items-center">
               <PieChartIcon className="w-5 h-5 mr-2 text-gray-600" />
@@ -133,9 +159,12 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
             </p>
           </div>
 
-                     <div className="space-y-4">
-             {positionBreakdown.slice(0, 10).map((position) => (
-               <div key={position.symbol} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+          <div className="space-y-4">
+            {positionBreakdown.slice(0, 10).map((position) => (
+              <div 
+                key={position.symbol} 
+                className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors duration-200"
+              >
                 <div className="flex items-center space-x-4">
                   <div className="flex-shrink-0 w-10 h-10 bg-white rounded-full flex items-center justify-center border border-gray-200">
                     <span className="text-sm font-semibold text-gray-700">
@@ -166,46 +195,12 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
             {positionBreakdown.length > 10 && (
               <div className="text-center py-4">
                 <p className="text-sm text-gray-500">
-                  +{positionBreakdown.length - 10} more positions
-                </p>
+                  +{positionBreakdown.length - 10} more positions</p>
               </div>
             )}
           </div>
         </div>
       )}
-
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="glass-card p-6 text-center">
-          <div className="w-12 h-12 mx-auto mb-3 bg-green-100 rounded-full flex items-center justify-center">
-            <TrendingUpIcon className="w-6 h-6 text-green-600" />
-          </div>
-          <p className="text-sm text-gray-600 mb-1">Winning Positions</p>
-          <p className="text-lg font-semibold text-gray-900">
-            {accountInfo.positions.filter(p => p.unrealizedPnL > 0).length}
-          </p>
-        </div>
-
-        <div className="glass-card p-6 text-center">
-          <div className="w-12 h-12 mx-auto mb-3 bg-red-100 rounded-full flex items-center justify-center">
-            <TrendingUpIcon className="w-6 h-6 text-red-600 rotate-180" />
-          </div>
-          <p className="text-sm text-gray-600 mb-1">Losing Positions</p>
-          <p className="text-lg font-semibold text-gray-900">
-            {accountInfo.positions.filter(p => p.unrealizedPnL < 0).length}
-          </p>
-        </div>
-
-        <div className="glass-card p-6 text-center">
-          <div className="w-12 h-12 mx-auto mb-3 bg-gray-100 rounded-full flex items-center justify-center">
-            <BarChart3Icon className="w-6 h-6 text-gray-600" />
-          </div>
-          <p className="text-sm text-gray-600 mb-1">Largest Position</p>
-          <p className="text-lg font-semibold text-gray-900">
-            {positionBreakdown.length > 0 ? positionBreakdown[0].symbol : 'None'}
-          </p>
-        </div>
-      </div>
     </div>
   )
 } 

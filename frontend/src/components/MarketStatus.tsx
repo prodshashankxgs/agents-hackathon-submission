@@ -21,7 +21,7 @@ export function MarketStatus() {
   return (
     <div className="space-y-6">
       {/* Market Status Header */}
-      <div className="glass-card p-6">
+      <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 flex items-center">
@@ -48,7 +48,7 @@ export function MarketStatus() {
 
       {/* Trading Hours Information */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div className="glass-card p-6">
+        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
           <div className="flex items-center mb-4">
             <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mr-3">
               <ClockIcon className="w-5 h-5 text-blue-600" />
@@ -70,7 +70,7 @@ export function MarketStatus() {
           </div>
         </div>
 
-        <div className="glass-card p-6">
+        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
           <div className="flex items-center mb-4">
             <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center mr-3">
               <TrendingUpIcon className="w-5 h-5 text-purple-600" />
@@ -92,7 +92,7 @@ export function MarketStatus() {
           </div>
         </div>
 
-        <div className="glass-card p-6">
+        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
           <div className="flex items-center mb-4">
             <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center mr-3">
               <TrendingUpIcon className="w-5 h-5 text-orange-600" />
@@ -116,7 +116,7 @@ export function MarketStatus() {
       </div>
 
       {/* Current Session Info */}
-      <div className="glass-card p-6">
+      <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
         <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
           <InfoIcon className="w-5 h-5 mr-2 text-gray-600" />
           Current Session
@@ -190,7 +190,7 @@ export function MarketStatus() {
       </div>
 
       {/* Market Holidays Notice */}
-      <div className="glass-card p-6">
+      <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
         <div className="flex items-start space-x-3">
           <CalendarIcon className="w-5 h-5 text-gray-600 mt-0.5" />
           <div>
@@ -198,17 +198,25 @@ export function MarketStatus() {
             <p className="text-sm text-gray-600 mb-3">
               The stock market is closed on federal holidays and some other designated days.
             </p>
-            <div className="text-xs text-gray-500">
-              <p>• New Year's Day</p>
-              <p>• Martin Luther King Jr. Day</p>
-              <p>• Presidents' Day</p>
-              <p>• Good Friday</p>
-              <p>• Memorial Day</p>
-              <p>• Juneteenth</p>
-              <p>• Independence Day</p>
-              <p>• Labor Day</p>
-              <p>• Thanksgiving Day</p>
-              <p>• Christmas Day</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <h4 className="text-sm font-medium text-gray-900 mb-2">Upcoming Holidays 2024</h4>
+                <ul className="text-xs text-gray-600 space-y-1">
+                  <li>• Presidents Day - February 19</li>
+                  <li>• Good Friday - March 29</li>
+                  <li>• Memorial Day - May 27</li>
+                  <li>• Juneteenth - June 19</li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-gray-900 mb-2">End of Year Holidays</h4>
+                <ul className="text-xs text-gray-600 space-y-1">
+                  <li>• Independence Day - July 4</li>
+                  <li>• Labor Day - September 2</li>
+                  <li>• Thanksgiving - November 28</li>
+                  <li>• Christmas Day - December 25</li>
+                </ul>
+              </div>
             </div>
           </div>
         </div>

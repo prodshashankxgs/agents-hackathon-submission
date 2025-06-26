@@ -1,6 +1,14 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ActivityIcon, DollarSignIcon, TrendingUpIcon, BarChart3Icon } from 'lucide-react'
+import { 
+  ActivityIcon, 
+  DollarSignIcon, 
+  TrendingUpIcon, 
+  BarChart3Icon,
+  PieChartIcon,
+  CreditCardIcon,
+  LineChartIcon
+} from 'lucide-react'
 import { apiService } from '@/lib/api'
 import { formatCurrency, formatPercentage } from '@/lib/utils'
 import { TradingInterface } from './TradingInterface'
@@ -8,25 +16,28 @@ import { PortfolioOverview } from './PortfolioOverview'
 import { MarketStatus } from './MarketStatus'
 import { PositionsList } from './PositionsList'
 
+// Lazy load the PortfolioPerformance component since it includes heavy charting libraries
+const PortfolioPerformance = lazy(() => import('./PortfolioPerformance').then(module => ({ default: module.PortfolioPerformance })))
+
 interface TradingDashboardProps {
   wsConnected: boolean
 }
 
 export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
-  const [selectedTab, setSelectedTab] = useState<'trade' | 'portfolio' | 'positions' | 'market'>('trade')
+  const [selectedTab, setSelectedTab] = useState<'trade' | 'portfolio' | 'performance' | 'positions' | 'market'>('trade')
 
   // Fetch account information
   const { data: accountInfo, isLoading: accountLoading, error: accountError } = useQuery({
     queryKey: ['account'],
     queryFn: apiService.getAccountInfo,
-    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchInterval: 30000,
   })
 
   // Fetch health status
   const { data: healthStatus } = useQuery({
     queryKey: ['health'],
     queryFn: apiService.getHealth,
-    refetchInterval: 60000, // Refresh every minute
+    refetchInterval: 60000,
   })
 
   // Fetch market status
@@ -41,144 +52,257 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
     ? (totalPnL / (accountInfo.portfolioValue - totalPnL)) * 100 
     : 0
 
-  const tabs = [
+  const navigationItems = [
     { id: 'trade', label: 'Trade', icon: DollarSignIcon },
-    { id: 'portfolio', label: 'Portfolio', icon: BarChart3Icon },
-    { id: 'positions', label: 'Positions', icon: TrendingUpIcon },
+    { id: 'portfolio', label: 'Portfolio', icon: PieChartIcon },
+    { id: 'performance', label: 'Performance', icon: LineChartIcon },
+    { id: 'positions', label: 'Positions', icon: BarChart3Icon },
     { id: 'market', label: 'Market', icon: ActivityIcon },
   ] as const
 
   return (
-    <div className="min-h-screen bg-gray-50/30 p-6 lg:p-8">
-      {/* Header */}
-      <div className="max-w-6xl mx-auto">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-8 pb-4">
-          <div className="mb-6 lg:mb-0 min-w-0 flex-1">
-            <h1 className="text-3xl lg:text-4xl xl:text-5xl font-bold gradient-text mb-6 break-words leading-normal py-1">
-              Natural Language Trading Extension
-            </h1>
+    <div className="flex h-screen bg-gray-50">
+      {/* Left Sidebar */}
+      <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
+        {/* Header */}
+        <div className="p-6 border-b border-gray-100">
+          <h1 className="text-xl font-semibold text-gray-900">
+            Trading Platform
+          </h1>
+          <p className="text-sm text-gray-600 mt-1">Natural Language Trading</p>
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 px-4 py-6">
+          <div className="space-y-2">
+            {navigationItems.map((item) => {
+              const Icon = item.icon
+              const isSelected = selectedTab === item.id
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setSelectedTab(item.id)}
+                  className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    isSelected
+                      ? 'bg-gray-900 text-white shadow-sm'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                  }`}
+                >
+                  <Icon className={`w-5 h-5 ${isSelected ? 'text-white' : 'text-gray-400'}`} />
+                  <span>{item.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </nav>
+
+        {/* Status Indicators */}
+        <div className="p-4 border-t border-gray-100 space-y-3">
+          {/* Connection Status */}
+          <div className={`flex items-center space-x-2 text-xs ${wsConnected ? 'text-green-600' : 'text-red-600'}`}>
+            <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+            <span>{wsConnected ? 'Connected' : 'Disconnected'}</span>
           </div>
           
-          <div className="flex flex-wrap items-center gap-3 lg:flex-shrink-0">
-            {/* Connection Status */}
-            <div className={`status-indicator ${wsConnected ? 'status-connected' : 'status-disconnected'}`}>
-              <div className={`w-1.5 h-1.5 rounded-full mr-2 ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-              {wsConnected ? 'Connected' : 'Disconnected'}
+          {/* Trading Mode */}
+          {healthStatus && (
+            <div className={`flex items-center space-x-2 text-xs ${
+              healthStatus.mode === 'paper' ? 'text-amber-600' : 'text-red-600'
+            }`}>
+              <div className={`w-2 h-2 rounded-full ${
+                healthStatus.mode === 'paper' ? 'bg-amber-500' : 'bg-red-500'
+              }`} />
+              <span>{healthStatus.mode === 'paper' ? 'Paper Trading' : 'Live Trading'}</span>
             </div>
-            
-            {/* Trading Mode */}
-            {healthStatus && (
-              <div className={`status-indicator ${
-                healthStatus.mode === 'paper' ? 'status-paper' : 'status-live'
-              }`}>
-                {healthStatus.mode === 'paper' ? 'Paper Trading' : 'Live Trading'}
-              </div>
-            )}
-            
-            {/* Market Status */}
-            {marketStatus && (
-              <div className={`status-indicator ${
-                marketStatus.isOpen ? 'status-market-open' : 'status-market-closed'
-              }`}>
-                {marketStatus.isOpen ? 'Market Open' : 'Market Closed'}
-              </div>
-            )}
-          </div>
+          )}
+          
+          {/* Market Status */}
+          {marketStatus && (
+            <div className={`flex items-center space-x-2 text-xs ${
+              marketStatus.isOpen ? 'text-green-600' : 'text-gray-600'
+            }`}>
+              <div className={`w-2 h-2 rounded-full ${
+                marketStatus.isOpen ? 'bg-green-500' : 'bg-gray-400'
+              }`} />
+              <span>{marketStatus.isOpen ? 'Market Open' : 'Market Closed'}</span>
+            </div>
+          )}
         </div>
+      </div>
 
-        {/* Quick Stats */}
-        {accountInfo && !accountLoading && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div className="metric-card">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-medium text-gray-600">Portfolio Value</p>
-                <TrendingUpIcon className="w-4 h-4 text-gray-400" />
-              </div>
-              <p className="text-2xl font-bold text-gray-900">
-                {formatCurrency(accountInfo.portfolioValue)}
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top Header */}
+        <header className="bg-white border-b border-gray-200 px-8 py-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-semibold text-gray-900 capitalize">
+                {selectedTab}
+              </h2>
+              <p className="text-sm text-gray-600 mt-1">
+                {selectedTab === 'trade' && 'Execute trades using natural language'}
+                {selectedTab === 'portfolio' && 'View your portfolio performance'}
+                {selectedTab === 'performance' && 'Track portfolio performance vs benchmarks'}
+                {selectedTab === 'positions' && 'Manage your current positions'}
+                {selectedTab === 'market' && 'Monitor market conditions'}
               </p>
             </div>
             
-            <div className="metric-card">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-medium text-gray-600">Buying Power</p>
-                <DollarSignIcon className="w-4 h-4 text-gray-400" />
+            {/* Quick Stats */}
+            {accountInfo && !accountLoading && (
+              <div className="flex items-center space-x-8">
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 uppercase tracking-wide">Portfolio Value</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {formatCurrency(accountInfo.portfolioValue)}
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 uppercase tracking-wide">Today's P&L</p>
+                  <p className={`text-lg font-semibold ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {formatCurrency(totalPnL)}
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 uppercase tracking-wide">Buying Power</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {formatCurrency(accountInfo.buyingPower)}
+                  </p>
+                </div>
               </div>
-              <p className="text-2xl font-bold text-gray-900">
-                {formatCurrency(accountInfo.buyingPower)}
-              </p>
-            </div>
-            
-            <div className="metric-card">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-medium text-gray-600">Today's P&L</p>
-                <ActivityIcon className="w-4 h-4 text-gray-400" />
+            )}
+          </div>
+        </header>
+
+        {/* Content Area */}
+        <main className="flex-1 overflow-y-auto bg-gray-50">
+          <div className="max-w-6xl mx-auto p-8">
+            {/* Account Stats Cards */}
+            {accountInfo && !accountLoading && (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div className="bg-white rounded-xl p-6 border border-gray-200 hover:shadow-sm transition-shadow duration-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <TrendingUpIcon className="w-5 h-5 text-gray-400" />
+                    <span className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded">Portfolio</span>
+                  </div>
+                  <p className="text-2xl font-semibold text-gray-900 mb-1">
+                    {formatCurrency(accountInfo.portfolioValue)}
+                  </p>
+                  <p className="text-sm text-gray-600">Total Value</p>
+                </div>
+                
+                <div className="bg-white rounded-xl p-6 border border-gray-200 hover:shadow-sm transition-shadow duration-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <CreditCardIcon className="w-5 h-5 text-gray-400" />
+                    <span className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded">Cash</span>
+                  </div>
+                  <p className="text-2xl font-semibold text-gray-900 mb-1">
+                    {formatCurrency(accountInfo.buyingPower)}
+                  </p>
+                  <p className="text-sm text-gray-600">Buying Power</p>
+                </div>
+                
+                <div className="bg-white rounded-xl p-6 border border-gray-200 hover:shadow-sm transition-shadow duration-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <ActivityIcon className={`w-5 h-5 ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`} />
+                    <span className={`text-xs px-2 py-1 rounded ${
+                      totalPnL >= 0 ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'
+                    }`}>
+                      {totalPnL >= 0 ? '+' : ''}{formatPercentage(totalPnLPercent)}
+                    </span>
+                  </div>
+                  <p className={`text-2xl font-semibold mb-1 ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {formatCurrency(totalPnL)}
+                  </p>
+                  <p className="text-sm text-gray-600">Today's P&L</p>
+                </div>
+                
+                <div className="bg-white rounded-xl p-6 border border-gray-200 hover:shadow-sm transition-shadow duration-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <BarChart3Icon className="w-5 h-5 text-gray-400" />
+                    <span className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded">Holdings</span>
+                  </div>
+                  <p className="text-2xl font-semibold text-gray-900 mb-1">
+                    {accountInfo.positions.length}
+                  </p>
+                  <p className="text-sm text-gray-600">Positions</p>
+                </div>
               </div>
-              <div>
-                <p className={`text-2xl font-bold ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {formatCurrency(totalPnL)}
-                </p>
-                <p className={`text-sm ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {formatPercentage(totalPnLPercent)}
-                </p>
+            )}
+
+            {/* Loading State for Stats */}
+            {accountLoading && (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="bg-white rounded-xl p-6 border border-gray-200">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="skeleton h-5 w-5 rounded"></div>
+                      <div className="skeleton h-5 w-16 rounded"></div>
+                    </div>
+                    <div className="skeleton h-8 w-24 mb-1 rounded"></div>
+                    <div className="skeleton h-4 w-20 rounded"></div>
+                  </div>
+                ))}
               </div>
-            </div>
-            
-            <div className="metric-card">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-medium text-gray-600">Positions</p>
-                <BarChart3Icon className="w-4 h-4 text-gray-400" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-gray-900">
-                  {accountInfo.positions.length}
-                </p>
-                <p className="text-sm text-gray-600">
-                  {accountInfo.dayTradeCount} day trades
-                </p>
-              </div>
+            )}
+
+            {/* Main Content */}
+            <div key={selectedTab} className="animate-fade-in-static">
+              {selectedTab === 'trade' && (
+                <div>
+                  <TradingInterface />
+                </div>
+              )}
+              {selectedTab === 'portfolio' && (
+                <div>
+                  <PortfolioOverview accountInfo={accountInfo} />
+                </div>
+              )}
+              {selectedTab === 'performance' && (
+                <div>
+                  <Suspense fallback={
+                    <div className="bg-white rounded-xl p-8 border border-gray-200 shadow-sm text-center">
+                      <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                        <LineChartIcon className="w-8 h-8 text-gray-400 animate-pulse" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-2">Loading Performance Charts</h3>
+                      <p className="text-gray-600">Please wait while we prepare your portfolio analytics...</p>
+                      <div className="mt-8 space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                          {[...Array(4)].map((_, i) => (
+                            <div key={i} className="p-4 bg-gray-50 rounded-lg">
+                              <div className="skeleton h-4 w-20 mb-2"></div>
+                              <div className="skeleton h-8 w-16 mb-1"></div>
+                              <div className="skeleton h-3 w-24"></div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="skeleton h-96 w-full rounded-lg"></div>
+                      </div>
+                    </div>
+                  }>
+                    <PortfolioPerformance accountInfo={accountInfo} />
+                  </Suspense>
+                </div>
+              )}
+              {selectedTab === 'positions' && (
+                <div>
+                  <PositionsList positions={accountInfo?.positions || []} />
+                </div>
+              )}
+              {selectedTab === 'market' && (
+                <div>
+                  <MarketStatus />
+                </div>
+              )}
             </div>
           </div>
-        )}
-
-        {/* Navigation Tabs */}
-        <div className="mb-8">
-          <div className="flex justify-center">
-            <div className="flex space-x-1 bg-gray-100 p-1 rounded-xl w-fit">
-              {tabs.map((tab) => {
-                const Icon = tab.icon
-                const isSelected = selectedTab === tab.id
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setSelectedTab(tab.id)}
-                    className={`flex items-center space-x-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                      isSelected
-                        ? 'bg-gray-900 text-white shadow-sm'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    <span>{tab.label}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-
-        {/* Main Content */}
-        <div className="space-y-6 max-w-4xl mx-auto">
-          {selectedTab === 'trade' && <TradingInterface />}
-          {selectedTab === 'portfolio' && <PortfolioOverview accountInfo={accountInfo} />}
-          {selectedTab === 'positions' && <PositionsList positions={accountInfo?.positions || []} />}
-          {selectedTab === 'market' && <MarketStatus />}
-        </div>
+        </main>
 
         {/* Error Handling */}
         {accountError && (
-          <div className="fixed bottom-6 right-6 max-w-md">
-            <div className="error-card glass-card p-4 rounded-xl border">
+          <div className="fixed bottom-6 right-6 max-w-md z-50">
+            <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-xl shadow-lg">
               <h4 className="font-medium mb-1">Connection Error</h4>
               <p className="text-sm opacity-90">
                 {accountError.message}

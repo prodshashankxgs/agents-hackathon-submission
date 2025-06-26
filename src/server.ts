@@ -3,6 +3,7 @@ import cors from 'cors';
 import { WebSocket, WebSocketServer } from 'ws';
 import { config } from './config';
 import { OpenAIService } from './llm/openai-service';
+import { AdvancedTradingService } from './llm/advanced-trading-service';
 import { AlpacaAdapter } from './brokers/alpaca-adapter';
 import { ValidationService } from './trading/validation-service';
 import { TradeIntent, CLIOptions, TradingError } from './types';
@@ -16,6 +17,7 @@ app.use(express.json());
 
 // Initialize services
 const openAI = new OpenAIService();
+const advancedTrading = new AdvancedTradingService();
 const broker = new AlpacaAdapter();
 const validator = new ValidationService(broker);
 
@@ -164,6 +166,107 @@ app.get('/api/market/status', async (req, res) => {
   }
 })
 
+// Advanced trading endpoints
+app.post('/api/advanced/parse', async (req, res) => {
+  try {
+    const { input } = req.body;
+    
+    if (!input || typeof input !== 'string') {
+      return res.status(400).json({ error: 'Invalid input provided' });
+    }
+
+    // Get account info for context
+    let accountInfo;
+    try {
+      accountInfo = await broker.getAccountInfo();
+    } catch (error) {
+      console.log('Could not fetch account info for context');
+    }
+
+    const intent = await advancedTrading.parseAdvancedIntent(input, accountInfo);
+    
+    return res.json({ intent, type: intent.type });
+  } catch (error) {
+    console.error('Advanced parse error:', error);
+    
+    if (error instanceof TradingError) {
+      return res.status(400).json({ error: error.message, code: error.code });
+    } else {
+      return res.status(500).json({ error: 'Failed to parse advanced intent' });
+    }
+  }
+});
+
+app.post('/api/advanced/hedge', async (req, res) => {
+  try {
+    const { intent } = req.body;
+    
+    if (!intent || intent.type !== 'hedge') {
+      return res.status(400).json({ error: 'Invalid hedge intent' });
+    }
+
+    // Get market data
+    const marketData: any = {};
+    try {
+      marketData[intent.primaryPosition.symbol] = await broker.getMarketData(intent.primaryPosition.symbol);
+    } catch (error) {
+      console.log('Market data unavailable');
+    }
+
+    const recommendation = await advancedTrading.generateHedgeRecommendation(intent, marketData);
+    
+    return res.json({ recommendation });
+  } catch (error) {
+    console.error('Hedge recommendation error:', error);
+    return res.status(500).json({ error: 'Failed to generate hedge recommendation' });
+  }
+});
+
+app.post('/api/advanced/analyze', async (req, res) => {
+  try {
+    const { intent } = req.body;
+    
+    if (!intent || intent.type !== 'analysis') {
+      return res.status(400).json({ error: 'Invalid analysis intent' });
+    }
+
+    // Get market data for requested symbols
+    const marketData: any = {};
+    for (const symbol of intent.symbols) {
+      try {
+        marketData[symbol] = await broker.getMarketData(symbol);
+      } catch (error) {
+        console.log(`Could not fetch data for ${symbol}`);
+      }
+    }
+
+    const analyses = await advancedTrading.performMarketAnalysis(intent, marketData);
+    
+    return res.json({ analyses });
+  } catch (error) {
+    console.error('Market analysis error:', error);
+    return res.status(500).json({ error: 'Failed to perform market analysis' });
+  }
+});
+
+app.post('/api/advanced/recommend', async (req, res) => {
+  try {
+    const { intent } = req.body;
+    
+    if (!intent || intent.type !== 'recommendation') {
+      return res.status(400).json({ error: 'Invalid recommendation intent' });
+    }
+
+    const accountInfo = await broker.getAccountInfo();
+    const recommendations = await advancedTrading.generateTradeRecommendations(intent, accountInfo);
+    
+    return res.json({ recommendations });
+  } catch (error) {
+    console.error('Trade recommendation error:', error);
+    return res.status(500).json({ error: 'Failed to generate trade recommendations' });
+  }
+});
+
 // Simplified command endpoints
 app.post('/api/command/parse', async (req, res) => {
   try {
@@ -175,8 +278,11 @@ app.post('/api/command/parse', async (req, res) => {
       })
     }
 
+    console.log('🎯 Parsing command:', command);
+
     // Use existing OpenAI service to parse the command
     const intent = await openAI.parseTradeIntent(command);
+    console.log('✅ Parsed intent:', JSON.stringify(intent, null, 2));
     
     // Extract errors and warnings
     const errors: string[] = []
@@ -189,7 +295,7 @@ app.post('/api/command/parse', async (req, res) => {
       errors.push('Could not identify valid quantity or amount')
     }
 
-    return res.json({
+    const result = {
       action: intent.action,
       symbol: intent.symbol,
       quantity: intent.amountType === 'shares' ? intent.amount : undefined,
@@ -199,9 +305,15 @@ app.post('/api/command/parse', async (req, res) => {
       isValid: errors.length === 0,
       errors: errors.length > 0 ? errors : undefined,
       warnings: warnings.length > 0 ? warnings : undefined
-    })
+    };
+
+    console.log('📋 Parse result:', JSON.stringify(result, null, 2));
+
+    return res.json(result)
   } catch (error: any) {
-    console.error('Command parse error:', error)
+    console.error('❌ Command parse error:', error)
+    console.error('Error stack:', error.stack);
+    
     return res.status(500).json({ 
       error: 'Failed to parse command',
       details: error.message 
@@ -219,22 +331,35 @@ app.post('/api/command/execute', async (req, res) => {
       })
     }
 
+    console.log('🎯 Executing command:', command);
+
     // Parse the command using OpenAI
+    console.log('🤖 Parsing command with OpenAI...');
     const intent = await openAI.parseTradeIntent(command);
+    console.log('✅ Parsed intent:', JSON.stringify(intent, null, 2));
     
     // Validate the trade
+    console.log('🔍 Validating trade...');
     const validation = await validator.validateTrade(intent);
+    console.log('📋 Validation results:', JSON.stringify(validation, null, 2));
     
     if (!validation.isValid) {
+      console.log('❌ Validation failed:', validation.errors);
       return res.json({
         success: false,
-        message: `Trade validation failed: ${validation.errors.join(', ')}`,
-        error: validation.errors.join(', ')
+        message: `Failed to validate order: ${validation.errors.join(', ')}`,
+        error: validation.errors.join(', '),
+        details: {
+          intent,
+          validation
+        }
       });
     }
 
     // Execute the trade
+    console.log('💼 Executing trade with broker...');
     const result = await broker.executeOrder(intent);
+    console.log('✅ Trade execution result:', JSON.stringify(result, null, 2));
     
     return res.json({
       success: result.success,
@@ -243,14 +368,79 @@ app.post('/api/command/execute', async (req, res) => {
       error: result.success ? undefined : result.error
     })
   } catch (error: any) {
-    console.error('Command execution error:', error)
+    console.error('❌ Command execution error:', error);
+    console.error('Error stack:', error.stack);
+    
+    // Provide more detailed error information
+    let errorMessage = 'Command execution failed';
+    let errorDetails: any = {};
+    
+    if (error.message) {
+      errorMessage = error.message;
+    }
+    
+    if (error.code) {
+      errorDetails.code = error.code;
+    }
+    
+    if (error.response?.data) {
+      errorDetails.apiResponse = error.response.data;
+    }
+    
+    console.error('Error details:', errorDetails);
+    
     return res.status(500).json({ 
       success: false,
-      message: 'Command execution failed',
-      error: error.message 
+      message: errorMessage,
+      error: errorMessage,
+      details: errorDetails
     })
   }
 })
+
+// Add a test endpoint after the existing endpoints
+app.get('/api/test/broker', async (req, res) => {
+  try {
+    console.log('🧪 Testing broker connection...');
+    
+    // Test account access
+    const accountInfo = await broker.getAccountInfo();
+    console.log('✅ Account info retrieved:', {
+      accountId: accountInfo.accountId,
+      buyingPower: accountInfo.buyingPower,
+      portfolioValue: accountInfo.portfolioValue
+    });
+    
+    // Test symbol lookup
+    try {
+      const marketData = await broker.getMarketData('AAPL');
+      console.log('✅ Market data for AAPL:', {
+        currentPrice: marketData.currentPrice,
+        isMarketOpen: marketData.isMarketOpen
+      });
+    } catch (error) {
+      console.log('❌ Failed to get AAPL market data:', error);
+    }
+    
+    res.json({
+      success: true,
+      message: 'Broker connection working',
+      accountInfo: {
+        accountId: accountInfo.accountId,
+        buyingPower: accountInfo.buyingPower,
+        portfolioValue: accountInfo.portfolioValue,
+        positions: accountInfo.positions.length
+      }
+    });
+  } catch (error: any) {
+    console.error('❌ Broker test failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.stack
+    });
+  }
+});
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

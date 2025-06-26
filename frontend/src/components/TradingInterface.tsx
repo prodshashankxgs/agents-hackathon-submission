@@ -1,18 +1,23 @@
 import { useState, useRef, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
-  SendIcon, 
   SparklesIcon, 
   AlertTriangleIcon, 
   CheckCircleIcon, 
   XCircleIcon,
   TrendingUpIcon,
   TrendingDownIcon,
-  DollarSignIcon 
+  DollarSignIcon,
+  LoaderIcon,
+  ArrowRightIcon,
+  CheckIcon,
+  XIcon,
+  ShieldIcon,
+  BarChart3Icon,
+  LightbulbIcon
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { apiService } from '@/lib/api'
+import { apiService, type HedgeRecommendation, type MarketAnalysis } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 
 interface ParsedCommand {
@@ -37,7 +42,11 @@ interface TradeResult {
 export function TradingInterface() {
   const [command, setCommand] = useState('')
   const [parsedCommand, setParsedCommand] = useState<ParsedCommand | null>(null)
+  const [hedgeRecommendation, setHedgeRecommendation] = useState<HedgeRecommendation | null>(null)
+  const [marketAnalysis, setMarketAnalysis] = useState<MarketAnalysis[] | null>(null)
+  const [tradeRecommendations, setTradeRecommendations] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [showConfirmation, setShowConfirmation] = useState(false)
   const [tradeHistory, setTradeHistory] = useState<Array<{
     command: string
     result: TradeResult
@@ -52,16 +61,23 @@ export function TradingInterface() {
     inputRef.current?.focus()
   }, [])
 
-  const parseCommandMutation = useMutation({
-    mutationFn: (command: string) => apiService.parseCommand(command),
-    onSuccess: (data) => {
-      setParsedCommand(data)
-    },
-    onError: (error) => {
-      console.error('Parse error:', error)
-      setParsedCommand(null)
+  // Handle keyboard shortcuts for confirmation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (showConfirmation && parsedCommand?.isValid) {
+        if (e.key === 'y' || e.key === 'Y') {
+          e.preventDefault()
+          handleConfirmTrade()
+        } else if (e.key === 'n' || e.key === 'N' || e.key === 'Escape') {
+          e.preventDefault()
+          handleCancelTrade()
+        }
+      }
     }
-  })
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [showConfirmation, parsedCommand])
 
   const executeCommandMutation = useMutation({
     mutationFn: (command: string) => apiService.executeCommand(command),
@@ -73,6 +89,7 @@ export function TradingInterface() {
       }, ...prev])
       setCommand('')
       setParsedCommand(null)
+      setShowConfirmation(false)
       // Refresh account data after successful trade
       if (data.success) {
         queryClient.invalidateQueries({ queryKey: ['account'] })
@@ -88,39 +105,129 @@ export function TradingInterface() {
         },
         timestamp: new Date()
       }, ...prev])
+      setShowConfirmation(false)
     }
   })
 
-  const handleInputChange = (value: string) => {
-    setCommand(value)
-    if (value.trim()) {
-      parseCommandMutation.mutate(value)
-    } else {
-      setParsedCommand(null)
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!command.trim() || isLoading) return
+    
+    setIsLoading(true)
+    setParsedCommand(null)
+    setHedgeRecommendation(null)
+    setMarketAnalysis(null)
+    setTradeRecommendations(null)
+    setShowConfirmation(false)
+    
+    try {
+      // First try to parse as advanced intent
+      const { intent, type } = await apiService.parseAdvancedIntent(command)
+      
+      if (type === 'trade') {
+        // Handle as regular trade
+        const tradeIntent = intent as any
+        setParsedCommand({
+          action: tradeIntent.action,
+          symbol: tradeIntent.symbol,
+          quantity: tradeIntent.amountType === 'shares' ? tradeIntent.amount : undefined,
+          amount: tradeIntent.amountType === 'dollars' ? tradeIntent.amount : undefined,
+          orderType: tradeIntent.orderType,
+          limitPrice: tradeIntent.limitPrice,
+          isValid: true
+        })
+        setShowConfirmation(true)
+      } else if (type === 'hedge') {
+        // Get hedge recommendations
+        const { recommendation } = await apiService.getHedgeRecommendation(intent as any)
+        setHedgeRecommendation(recommendation)
+      } else if (type === 'analysis') {
+        // Get market analysis
+        const { analyses } = await apiService.analyzeMarket(intent as any)
+        setMarketAnalysis(analyses)
+      } else if (type === 'recommendation') {
+        // Get trade recommendations
+        const { recommendations } = await apiService.getTradeRecommendations(intent as any)
+        setTradeRecommendations(recommendations)
+      }
+      
+      setIsLoading(false)
+    } catch (error: any) {
+      console.error('Advanced parse error:', error)
+      
+      // Check if this looks like a hedging, analysis, or recommendation query
+      const lowerCommand = command.toLowerCase()
+      const isAdvancedQuery = lowerCommand.includes('hedge') || 
+                             lowerCommand.includes('analyze') || 
+                             lowerCommand.includes('analysis') || 
+                             lowerCommand.includes('recommend') ||
+                             lowerCommand.includes('what should i buy') ||
+                             lowerCommand.includes('what should i sell')
+      
+      if (isAdvancedQuery) {
+        // Show error for advanced queries that failed
+        setParsedCommand({
+          action: 'buy',
+          symbol: '',
+          orderType: 'market',
+          isValid: false,
+          errors: [`Advanced query failed: ${error.message || 'Unable to process this request'}. Please try rephrasing your question.`]
+        })
+      } else {
+        // Fallback to simple command parsing for trade-like queries
+        try {
+          const parsed = await apiService.parseCommand(command)
+          setParsedCommand(parsed)
+          
+          if (parsed.isValid) {
+            setShowConfirmation(true)
+          }
+        } catch (parseError: any) {
+          setParsedCommand({
+            action: 'buy',
+            symbol: '',
+            orderType: 'market',
+            isValid: false,
+            errors: [parseError.message || 'Failed to parse command']
+          })
+        }
+      }
+      setIsLoading(false)
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!command.trim()) return
-    
+  const handleConfirmTrade = () => {
     setIsLoading(true)
     executeCommandMutation.mutate(command, {
       onSettled: () => setIsLoading(false)
     })
   }
 
+  const handleCancelTrade = () => {
+    setShowConfirmation(false)
+    setParsedCommand(null)
+    setCommand('')
+    inputRef.current?.focus()
+  }
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSubmit(e)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Main Input Card */}
-      <div className="glass-card p-6 lg:p-8">
+      <div className="bg-white rounded-xl p-8 border border-gray-200 shadow-sm">
         <div className="mb-6">
-          <h2 className="text-xl lg:text-2xl font-bold text-gray-900 mb-2 flex items-center">
-            <SparklesIcon className="w-5 h-5 lg:w-6 lg:h-6 mr-2 lg:mr-3 text-gray-600 flex-shrink-0" />
+          <h2 className="text-xl font-semibold text-gray-900 mb-2 flex items-center">
+            <SparklesIcon className="w-5 h-5 mr-3 text-gray-400" />
             <span>Natural Language Trading</span>
           </h2>
-          <p className="text-gray-600 text-sm lg:text-base">
-            Type your trading commands in plain English. I'll parse and execute them safely.
+          <p className="text-gray-600 text-sm">
+            Type your trading commands, hedging questions, or market analysis requests in plain English.
           </p>
         </div>
 
@@ -129,20 +236,28 @@ export function TradingInterface() {
             <Input
               ref={inputRef}
               value={command}
-              onChange={(e) => handleInputChange(e.target.value)}
-              placeholder="Enter your trading command..."
-              className="w-full px-6 py-5 border border-gray-200 rounded-xl bg-white focus:border-gray-900 focus:ring-1 focus:ring-gray-900 focus:outline-none transition-all duration-200 placeholder:text-gray-500 text-base pr-12"
+              onChange={(e) => setCommand(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder='e.g., "Buy $1000 of AAPL" or "How to hedge my LULU position for earnings?"'
+              className="w-full px-6 py-4 border border-gray-200 rounded-xl bg-white focus:border-gray-900 focus:ring-1 focus:ring-gray-900 focus:outline-none transition-all duration-200 placeholder:text-gray-500 text-base pr-14"
               disabled={isLoading}
             />
-            <Button
-              type="submit"
-              disabled={!command.trim() || isLoading}
-              className="absolute right-3 top-1/2 -translate-y-1/2 h-7 w-7 p-0 bg-gray-900 hover:bg-gray-800 rounded-lg"
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14m-7-7l7 7-7 7" />
-              </svg>
-            </Button>
+            
+            {/* Loading indicator */}
+            {isLoading && (
+              <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                <LoaderIcon className="w-5 h-5 text-gray-400 animate-spin" />
+              </div>
+            )}
+            
+            {/* Send button when not loading */}
+            {!isLoading && command.trim() && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                <div className="w-7 h-7 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110">
+                  <ArrowRightIcon className="w-3.5 h-3.5 text-white" />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Command Preview */}
@@ -153,14 +268,16 @@ export function TradingInterface() {
                 : 'bg-red-50 border-red-200'
             }`}>
               <div className="flex items-start space-x-3">
-                {parsedCommand.isValid ? (
-                  <CheckCircleIcon className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
-                ) : (
-                  <XCircleIcon className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
-                )}
+                <div className="mt-0.5">
+                  {parsedCommand.isValid ? (
+                    <CheckCircleIcon className="w-5 h-5 text-green-600" />
+                  ) : (
+                    <XCircleIcon className="w-5 h-5 text-red-600" />
+                  )}
+                </div>
                 
                 <div className="flex-1 space-y-2 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 lg:gap-4">
+                  <div className="flex flex-wrap items-center gap-3">
                     <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
                       parsedCommand.action === 'buy' 
                         ? 'bg-green-100 text-green-800' 
@@ -221,6 +338,202 @@ export function TradingInterface() {
                       ))}
                     </div>
                   )}
+
+                  {/* Confirmation UI */}
+                  {showConfirmation && parsedCommand.isValid && (
+                    <div className="mt-4 pt-4 border-t border-green-200 confirmation-slide-in">
+                      <div className="flex items-center justify-between mb-4">
+                        <p className="text-sm font-medium text-gray-900">
+                          Are you sure you want to execute this trade?
+                        </p>
+                        <div className="flex items-center gap-1 text-xs text-gray-500">
+                          <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-700 font-mono">Y</kbd>
+                          <span>/</span>
+                          <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-700 font-mono">N</kbd>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={handleConfirmTrade}
+                          disabled={isLoading}
+                          className="group relative inline-flex items-center justify-center px-6 py-2.5 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:scale-105 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                        >
+                          <div className="absolute inset-0 bg-green-400 rounded-lg opacity-0 group-hover:opacity-20 transition-opacity duration-200"></div>
+                          {isLoading ? (
+                            <LoaderIcon className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <CheckIcon className="w-4 h-4 mr-2" />
+                          )}
+                          <span>{isLoading ? 'Executing...' : 'Yes, Execute Trade'}</span>
+                        </button>
+                        
+                        <button
+                          onClick={handleCancelTrade}
+                          disabled={isLoading}
+                          className="group relative inline-flex items-center justify-center px-6 py-2.5 bg-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:scale-105 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                        >
+                          <div className="absolute inset-0 bg-gray-400 rounded-lg opacity-0 group-hover:opacity-10 transition-opacity duration-200"></div>
+                          <XIcon className="w-4 h-4 mr-2" />
+                          <span>No, Cancel</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Hedge Recommendation Display */}
+          {hedgeRecommendation && (
+            <div className="p-4 rounded-xl border bg-blue-50 border-blue-200">
+              <div className="flex items-start space-x-3">
+                <ShieldIcon className="w-5 h-5 text-blue-600 mt-0.5" />
+                <div className="flex-1 space-y-3">
+                  <h3 className="font-medium text-blue-900">Hedge Strategy Recommendation</h3>
+                  <p className="text-sm text-blue-800">{hedgeRecommendation.strategy}</p>
+                  
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium text-blue-900">Recommended Instruments:</h4>
+                    {hedgeRecommendation.instruments.map((instrument, idx) => (
+                      <div key={idx} className="bg-white/60 p-3 rounded-lg text-sm">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-medium">
+                            {instrument.action.toUpperCase()} {instrument.quantity} {instrument.symbol}
+                          </span>
+                        </div>
+                        <p className="text-blue-700 text-xs">{instrument.rationale}</p>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  <div className="bg-white/60 p-3 rounded-lg text-sm space-y-1">
+                    <div className="flex justify-between">
+                      <span>Estimated Cost:</span>
+                      <span className="font-medium">{formatCurrency(hedgeRecommendation.estimatedCost)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Risk Reduction:</span>
+                      <span className="font-medium">{hedgeRecommendation.riskReduction}</span>
+                    </div>
+                  </div>
+                  
+                  <p className="text-sm text-blue-800">{hedgeRecommendation.explanation}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Market Analysis Display */}
+          {marketAnalysis && marketAnalysis.length > 0 && (
+            <div className="p-4 rounded-xl border bg-purple-50 border-purple-200">
+              <div className="flex items-start space-x-3">
+                <BarChart3Icon className="w-5 h-5 text-purple-600 mt-0.5" />
+                <div className="flex-1 space-y-4">
+                  <h3 className="font-medium text-purple-900">Market Analysis</h3>
+                  
+                  {marketAnalysis.map((analysis, idx) => (
+                    <div key={idx} className="bg-white/60 p-4 rounded-lg space-y-3">
+                      <div className="flex items-start justify-between">
+                        <h4 className="font-medium text-purple-900">{analysis.symbol}</h4>
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          analysis.analysis.sentiment === 'bullish' ? 'bg-green-100 text-green-800' :
+                          analysis.analysis.sentiment === 'bearish' ? 'bg-red-100 text-red-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {analysis.analysis.sentiment.toUpperCase()}
+                        </span>
+                      </div>
+                      
+                      {analysis.analysis.riskFactors.length > 0 && (
+                        <div>
+                          <h5 className="text-sm font-medium text-red-700 mb-1">Risk Factors:</h5>
+                          <ul className="space-y-1">
+                            {analysis.analysis.riskFactors.map((risk, rIdx) => (
+                              <li key={rIdx} className="text-sm text-purple-800 flex items-start">
+                                <span className="text-red-500 mr-2">•</span>
+                                {risk}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {analysis.analysis.opportunities.length > 0 && (
+                        <div>
+                          <h5 className="text-sm font-medium text-green-700 mb-1">Opportunities:</h5>
+                          <ul className="space-y-1">
+                            {analysis.analysis.opportunities.map((opp, oIdx) => (
+                              <li key={oIdx} className="text-sm text-purple-800 flex items-start">
+                                <span className="text-green-500 mr-2">•</span>
+                                {opp}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      <div className="pt-2 border-t border-purple-200">
+                        <p className="text-sm text-purple-900">
+                          <span className="font-medium">Recommendation:</span> {analysis.analysis.recommendation}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Trade Recommendations Display */}
+          {tradeRecommendations && (
+            <div className="p-4 rounded-xl border bg-amber-50 border-amber-200">
+              <div className="flex items-start space-x-3">
+                <LightbulbIcon className="w-5 h-5 text-amber-600 mt-0.5" />
+                <div className="flex-1 space-y-3">
+                  <h3 className="font-medium text-amber-900">Trade Recommendations</h3>
+                  
+                  {tradeRecommendations.recommendations && (
+                    <div className="space-y-3">
+                      {tradeRecommendations.recommendations.map((rec: any, idx: number) => (
+                        <div key={idx} className="bg-white/60 p-3 rounded-lg space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium text-amber-900">
+                              {rec.action.toUpperCase()} {rec.symbol}
+                            </span>
+                            <span className="text-sm text-amber-800">{rec.allocation}</span>
+                          </div>
+                          <p className="text-sm text-amber-800">{rec.rationale}</p>
+                          {rec.targetPrice && (
+                            <div className="text-xs text-amber-700">
+                              Target: {formatCurrency(rec.targetPrice)} | Stop Loss: {formatCurrency(rec.stopLoss || 0)}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {tradeRecommendations.strategy && (
+                    <div className="bg-white/60 p-3 rounded-lg">
+                      <h4 className="text-sm font-medium text-amber-900 mb-1">Strategy:</h4>
+                      <p className="text-sm text-amber-800">{tradeRecommendations.strategy}</p>
+                    </div>
+                  )}
+                  
+                  {tradeRecommendations.risks && (
+                    <div>
+                      <h4 className="text-sm font-medium text-red-700 mb-1">Key Risks:</h4>
+                      <ul className="space-y-1">
+                        {tradeRecommendations.risks.map((risk: string, idx: number) => (
+                          <li key={idx} className="text-sm text-amber-800 flex items-start">
+                            <span className="text-red-500 mr-2">•</span>
+                            {risk}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -230,9 +543,12 @@ export function TradingInterface() {
 
       {/* Trade History */}
       {tradeHistory.length > 0 && (
-        <div className="glass-card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
-          <div className="space-y-4 max-h-96 overflow-y-auto custom-scrollbar">
+        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <span>Recent Activity</span>
+            <div className="ml-2 w-2 h-2 bg-green-500 rounded-full"></div>
+          </h3>
+          <div className="space-y-4 max-h-96 overflow-y-auto">
             {tradeHistory.map((trade, index) => (
               <div
                 key={index}
@@ -244,11 +560,13 @@ export function TradingInterface() {
               >
                 <div className="flex items-start justify-between mb-2 flex-wrap gap-2">
                   <div className="flex items-center space-x-2 min-w-0 flex-1">
-                    {trade.result.success ? (
-                      <CheckCircleIcon className="w-4 h-4 text-green-600 flex-shrink-0" />
-                    ) : (
-                      <XCircleIcon className="w-4 h-4 text-red-600 flex-shrink-0" />
-                    )}
+                    <div>
+                      {trade.result.success ? (
+                        <CheckCircleIcon className="w-4 h-4 text-green-600 flex-shrink-0" />
+                      ) : (
+                        <XCircleIcon className="w-4 h-4 text-red-600 flex-shrink-0" />
+                      )}
+                    </div>
                     <span className="font-medium text-gray-900 truncate">
                       "{trade.command}"
                     </span>

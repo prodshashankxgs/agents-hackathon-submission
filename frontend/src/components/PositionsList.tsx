@@ -17,7 +17,7 @@ interface PositionsListProps {
 export function PositionsList({ positions }: PositionsListProps) {
   if (positions.length === 0) {
     return (
-      <div className="glass-card p-8 text-center">
+      <div className="bg-white rounded-xl p-8 border border-gray-200 shadow-sm text-center">
         <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
           <TrendingUpIcon className="w-8 h-8 text-gray-400" />
         </div>
@@ -35,7 +35,7 @@ export function PositionsList({ positions }: PositionsListProps) {
   return (
     <div className="space-y-6">
       {/* Summary Card */}
-      <div className="glass-card p-6">
+      <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold text-gray-900">Portfolio Positions</h2>
           <div className="flex items-center space-x-4">
@@ -58,7 +58,7 @@ export function PositionsList({ positions }: PositionsListProps) {
       </div>
 
       {/* Positions Table */}
-      <div className="glass-card overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900">Positions</h3>
         </div>
@@ -96,7 +96,10 @@ export function PositionsList({ positions }: PositionsListProps) {
                 const isNeutral = position.unrealizedPnL === 0
 
                 return (
-                  <tr key={position.symbol} className="hover:bg-gray-50 transition-colors">
+                  <tr 
+                    key={position.symbol} 
+                    className="hover:bg-gray-50 transition-colors duration-200"
+                  >
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <div className="flex-shrink-0 w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center mr-3">
@@ -108,8 +111,10 @@ export function PositionsList({ positions }: PositionsListProps) {
                           <div className="text-sm font-medium text-gray-900">
                             {position.symbol}
                           </div>
-                          <div className="text-xs text-gray-500">
-                            {position.side === 'long' ? 'Long' : 'Short'}
+                          <div className={`text-xs ${
+                            position.side === 'long' ? 'text-green-600' : 'text-red-600'
+                          }`}>
+                            {position.side === 'long' ? 'Long Position' : 'Short Position'}
                           </div>
                         </div>
                       </div>
@@ -146,14 +151,16 @@ export function PositionsList({ positions }: PositionsListProps) {
                       <div className={`flex items-center text-sm font-medium ${
                         isPositive ? 'text-green-600' : isNeutral ? 'text-gray-600' : 'text-red-600'
                       }`}>
-                        {isPositive ? (
-                          <TrendingUpIcon className="w-4 h-4 mr-1" />
-                        ) : isNeutral ? (
-                          <MinusIcon className="w-4 h-4 mr-1" />
-                        ) : (
-                          <TrendingDownIcon className="w-4 h-4 mr-1" />
-                        )}
-                        {formatCurrency(Math.abs(position.unrealizedPnL))}
+                        <div>
+                          {isPositive ? (
+                            <TrendingUpIcon className="w-4 h-4 mr-1" />
+                          ) : isNeutral ? (
+                            <MinusIcon className="w-4 h-4 mr-1" />
+                          ) : (
+                            <TrendingDownIcon className="w-4 h-4 mr-1" />
+                          )}
+                        </div>
+                        {isPositive ? '+' : isNeutral ? '' : '-'}{formatCurrency(Math.abs(position.unrealizedPnL))}
                       </div>
                     </td>
                     
@@ -173,6 +180,48 @@ export function PositionsList({ positions }: PositionsListProps) {
               })}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Quick Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm text-center">
+          <div className="w-12 h-12 mx-auto mb-3 bg-green-100 rounded-full flex items-center justify-center">
+            <TrendingUpIcon className="w-6 h-6 text-green-600" />
+          </div>
+          <p className="text-sm text-gray-600 mb-1">Profitable Positions</p>
+          <p className="text-lg font-semibold text-gray-900">
+            {positions.filter(p => p.unrealizedPnL > 0).length}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            {positions.length > 0 ? Math.round((positions.filter(p => p.unrealizedPnL > 0).length / positions.length) * 100) : 0}% of portfolio
+          </p>
+        </div>
+
+        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm text-center">
+          <div className="w-12 h-12 mx-auto mb-3 bg-red-100 rounded-full flex items-center justify-center">
+            <TrendingDownIcon className="w-6 h-6 text-red-600" />
+          </div>
+          <p className="text-sm text-gray-600 mb-1">Losing Positions</p>
+          <p className="text-lg font-semibold text-gray-900">
+            {positions.filter(p => p.unrealizedPnL < 0).length}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            {positions.length > 0 ? Math.round((positions.filter(p => p.unrealizedPnL < 0).length / positions.length) * 100) : 0}% of portfolio
+          </p>
+        </div>
+
+        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm text-center">
+          <div className="w-12 h-12 mx-auto mb-3 bg-gray-100 rounded-full flex items-center justify-center">
+            <MinusIcon className="w-6 h-6 text-gray-600" />
+          </div>
+          <p className="text-sm text-gray-600 mb-1">Neutral Positions</p>
+          <p className="text-lg font-semibold text-gray-900">
+            {positions.filter(p => p.unrealizedPnL === 0).length}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            {positions.length > 0 ? Math.round((positions.filter(p => p.unrealizedPnL === 0).length / positions.length) * 100) : 0}% of portfolio
+          </p>
         </div>
       </div>
     </div>

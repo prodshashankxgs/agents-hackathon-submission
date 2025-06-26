@@ -79,6 +79,72 @@ export interface MarketStatus {
   timestamp: string
 }
 
+// Advanced trading types
+export interface HedgeIntent {
+  type: 'hedge'
+  primaryPosition: {
+    symbol: string
+    currentValue?: number
+    shares?: number
+  }
+  hedgeReason: string
+  timeframe?: string
+  riskTolerance?: 'conservative' | 'moderate' | 'aggressive'
+}
+
+export interface MarketAnalysisIntent {
+  type: 'analysis'
+  symbols: string[]
+  analysisType: 'fundamental' | 'technical' | 'sentiment' | 'risk'
+  context?: string
+  timeframe?: string
+}
+
+export interface TradeRecommendationIntent {
+  type: 'recommendation'
+  scenario: string
+  constraints?: {
+    maxRisk?: number
+    sectors?: string[]
+    excludeSymbols?: string[]
+  }
+}
+
+export type AdvancedTradeIntent = 
+  | (TradeIntent & { type: 'trade' })
+  | HedgeIntent 
+  | MarketAnalysisIntent 
+  | TradeRecommendationIntent
+
+export interface HedgeRecommendation {
+  strategy: string
+  instruments: Array<{
+    symbol: string
+    action: 'buy' | 'sell'
+    quantity: number
+    rationale: string
+  }>
+  estimatedCost: number
+  riskReduction: string
+  explanation: string
+}
+
+export interface MarketAnalysis {
+  symbol: string
+  currentPrice: number
+  analysis: {
+    sentiment: 'bullish' | 'bearish' | 'neutral'
+    riskFactors: string[]
+    opportunities: string[]
+    recommendation: string
+  }
+  relatedNews?: Array<{
+    title: string
+    summary: string
+    impact: 'positive' | 'negative' | 'neutral'
+  }>
+}
+
 // API functions
 export const apiService = {
   // Health check
@@ -143,6 +209,27 @@ export const apiService = {
     error?: string
   }> {
     const response = await api.post('/command/execute', { command })
+    return response.data
+  },
+
+  // Advanced trading operations
+  async parseAdvancedIntent(input: string): Promise<{ intent: AdvancedTradeIntent; type: string }> {
+    const response = await api.post('/advanced/parse', { input })
+    return response.data
+  },
+
+  async getHedgeRecommendation(intent: HedgeIntent): Promise<{ recommendation: HedgeRecommendation }> {
+    const response = await api.post('/advanced/hedge', { intent })
+    return response.data
+  },
+
+  async analyzeMarket(intent: MarketAnalysisIntent): Promise<{ analyses: MarketAnalysis[] }> {
+    const response = await api.post('/advanced/analyze', { intent })
+    return response.data
+  },
+
+  async getTradeRecommendations(intent: TradeRecommendationIntent): Promise<{ recommendations: any }> {
+    const response = await api.post('/advanced/recommend', { intent })
     return response.data
   },
 }

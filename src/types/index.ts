@@ -127,4 +127,70 @@ export class LLMError extends TradingError {
     super(message, 'LLM_ERROR', details);
     this.name = 'LLMError';
   }
+}
+
+// Advanced trading intent types
+export interface HedgeIntent {
+  type: 'hedge';
+  primaryPosition: {
+    symbol: string;
+    currentValue?: number;
+    shares?: number;
+  };
+  hedgeReason: string;
+  timeframe?: string;
+  riskTolerance?: 'conservative' | 'moderate' | 'aggressive';
+}
+
+export interface MarketAnalysisIntent {
+  type: 'analysis';
+  symbols: string[];
+  analysisType: 'fundamental' | 'technical' | 'sentiment' | 'risk';
+  context?: string;
+  timeframe?: string;
+}
+
+export interface TradeRecommendationIntent {
+  type: 'recommendation';
+  scenario: string;
+  constraints?: {
+    maxRisk?: number;
+    sectors?: string[];
+    excludeSymbols?: string[];
+  };
+}
+
+export type AdvancedTradeIntent = 
+  | (TradeIntent & { type: 'trade' })
+  | HedgeIntent 
+  | MarketAnalysisIntent 
+  | TradeRecommendationIntent;
+
+export interface HedgeRecommendation {
+  strategy: string;
+  instruments: Array<{
+    symbol: string;
+    action: 'buy' | 'sell';
+    quantity: number;
+    rationale: string;
+  }>;
+  estimatedCost: number;
+  riskReduction: string;
+  explanation: string;
+}
+
+export interface MarketAnalysis {
+  symbol: string;
+  currentPrice: number;
+  analysis: {
+    sentiment: 'bullish' | 'bearish' | 'neutral';
+    riskFactors: string[];
+    opportunities: string[];
+    recommendation: string;
+  };
+  relatedNews?: Array<{
+    title: string;
+    summary: string;
+    impact: 'positive' | 'negative' | 'neutral';
+  }>;
 } 
