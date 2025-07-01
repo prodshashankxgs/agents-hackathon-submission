@@ -15,7 +15,6 @@ import {
   ShieldIcon,
   BarChart3Icon,
   LightbulbIcon,
-  MessageSquareIcon,
   BrainCircuitIcon,
   ShieldCheckIcon,
   RocketIcon
