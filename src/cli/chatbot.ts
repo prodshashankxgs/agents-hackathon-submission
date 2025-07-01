@@ -1,12 +1,10 @@
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { OpenAIService } from '../llm/openai-service';
+import { ClaudeService } from '../llm/claude-service';
 import { AdvancedTradingService } from '../llm/advanced-trading-service';
 import { AlpacaAdapter } from '../brokers/alpaca-adapter';
 import { ValidationService } from '../trading/validation-service';
 import { TradeIntent, AccountInfo, TradeResult, AdvancedTradeIntent } from '../types';
-import OpenAI from 'openai';
-import { config } from '../config';
 
 interface ChatContext {
   accountInfo?: AccountInfo;
@@ -15,17 +13,15 @@ interface ChatContext {
 }
 
 export class TradingChatbot {
-  private openAI: OpenAIService;
+  private claudeService: ClaudeService;
   private advancedTrading: AdvancedTradingService;
-  private openAIClient: OpenAI;
   private broker: AlpacaAdapter;
   private validator: ValidationService;
   private context: ChatContext;
 
   constructor() {
-    this.openAI = new OpenAIService();
+    this.claudeService = new ClaudeService();
     this.advancedTrading = new AdvancedTradingService();
-    this.openAIClient = new OpenAI({ apiKey: config.openaiApiKey });
     this.broker = new AlpacaAdapter();
     this.validator = new ValidationService(this.broker);
     this.context = {
@@ -139,7 +135,7 @@ export class TradingChatbot {
     try {
       // Parse the trade intent
       console.log(chalk.gray('Let me process your trade request...'));
-      const intent = await this.openAI.parseTradeIntent(message);
+      const intent = await this.claudeService.parseTradeIntent(message);
       
       // Show what we understood
       console.log(`\nI understand you want to ${intent.action} ${intent.amountType === 'dollars' ? '$' + intent.amount : intent.amount + ' shares'} of ${intent.symbol}.`);
@@ -287,24 +283,12 @@ export class TradingChatbot {
 
   private async handleGeneralQuery(message: string): Promise<void> {
     try {
-      // Use OpenAI to generate a helpful response
-      const completion = await this.openAIClient.chat.completions.create({
-        model: 'gpt-4-turbo-preview',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a helpful trading assistant. You can help users execute trades, check their account, and answer questions about the stock market. 
-            Keep responses concise and friendly. If asked about specific trades, remind them to use clear commands like "buy $100 of AAPL".
-            Current context: User has $${this.context.accountInfo?.buyingPower.toFixed(2) || 'unknown'} buying power.`
-          },
-          ...this.context.conversationHistory.slice(-5), // Keep last 5 messages for context
-          { role: 'user', content: message }
-        ],
-        max_tokens: 200,
-        temperature: 0.7
+      // Use Claude to generate a helpful response
+      const response = await this.claudeService.generateResponse(message, {
+        accountInfo: this.context.accountInfo,
+        conversationHistory: this.context.conversationHistory
       });
       
-      const response = completion.choices[0]?.message?.content || 'I\'m here to help with your trading needs.';
       console.log(response);
       
       // Add assistant response to history
@@ -431,7 +415,7 @@ export class TradingChatbot {
     // Get market data for the position
     let marketData: any = {};
     try {
-      marketData[hedgeIntent.primaryPosition.symbol] = await this.broker.getMarketData(hedgeIntent.primaryPosition.symbol);
+      marketData[hedgeIntent.primarySymbol] = await this.broker.getMarketData(hedgeIntent.primarySymbol);
     } catch (error) {
       console.log(chalk.yellow('Note: Market data unavailable. Analysis based on general strategies.'));
     }
@@ -440,7 +424,7 @@ export class TradingChatbot {
     const recommendation = await this.advancedTrading.generateHedgeRecommendation(hedgeIntent, marketData);
     
     console.log('\n' + chalk.white('Hedge Strategy Recommendation:'));
-    console.log(`\nPosition: ${hedgeIntent.primaryPosition.symbol}`);
+    console.log(`\nPosition: ${hedgeIntent.primarySymbol}`);
     console.log(`Reason for hedging: ${hedgeIntent.hedgeReason}`);
     console.log(`Risk tolerance: ${hedgeIntent.riskTolerance}`);
     
@@ -449,14 +433,18 @@ export class TradingChatbot {
     
     console.log('\n' + chalk.white('Hedging Instruments:'));
     recommendation.instruments.forEach(instrument => {
-      console.log(`• ${instrument.action.toUpperCase()} ${instrument.quantity} ${instrument.symbol}`);
-      console.log(`  Rationale: ${instrument.rationale}`);
+      console.log(`• ${instrument.action.toUpperCase()} ${instrument.quantity} ${instrument.symbol} (${instrument.type})`);
+      console.log(`  Reasoning: ${instrument.reasoning}`);
     });
     
     console.log('\n' + chalk.white('Analysis:'));
-    console.log(`• Estimated hedge cost: $${recommendation.estimatedCost.toFixed(2)}`);
-    console.log(`• Risk reduction: ${recommendation.riskReduction}`);
-    console.log(`\n${recommendation.explanation}`);
+    console.log(`• Estimated hedge cost: $${recommendation.costEstimate.toFixed(2)}`);
+    console.log(`• Risk reduction: ${recommendation.riskReduction}%`);
+    console.log(`• Timeline: ${recommendation.timeline}`);
+    console.log('\n' + chalk.white('Exit Conditions:'));
+    recommendation.exitConditions.forEach(condition => {
+      console.log(`• ${condition}`);
+    });
     
     console.log('\n' + chalk.gray('Note: This is a strategic recommendation. Always consider your personal risk tolerance and consult with a financial advisor if needed.'));
   }
@@ -481,33 +469,26 @@ export class TradingChatbot {
     
     for (const analysis of analyses) {
       console.log('\n' + chalk.white(`Analysis for ${analysis.symbol}:`));
-      if (analysis.currentPrice > 0) {
-        console.log(`Current Price: $${analysis.currentPrice.toFixed(2)}`);
-      }
       
-      console.log(`\n${chalk.yellow('Sentiment:')} ${analysis.analysis.sentiment.toUpperCase()}`);
+      console.log(`\n${chalk.yellow('Sentiment:')} ${analysis.sentiment.toUpperCase()}`);
+      console.log(`${chalk.white('Confidence:')} ${analysis.confidence}%`);
+      console.log(`${chalk.white('Price Target:')} $${analysis.priceTarget.toFixed(2)}`);
       
-      if (analysis.analysis.riskFactors.length > 0) {
+      if (analysis.riskFactors.length > 0) {
         console.log('\n' + chalk.red('Risk Factors:'));
-        analysis.analysis.riskFactors.forEach(risk => console.log(`• ${risk}`));
+        analysis.riskFactors.forEach((risk: string) => console.log(`• ${risk}`));
       }
       
-      if (analysis.analysis.opportunities.length > 0) {
+      if (analysis.opportunities.length > 0) {
         console.log('\n' + chalk.green('Opportunities:'));
-        analysis.analysis.opportunities.forEach(opp => console.log(`• ${opp}`));
+        analysis.opportunities.forEach((opp: string) => console.log(`• ${opp}`));
       }
       
       console.log('\n' + chalk.white('Recommendation:'));
-      console.log(analysis.analysis.recommendation);
+      console.log(`${analysis.recommendation.toUpperCase()}`);
       
-      if (analysis.relatedNews && analysis.relatedNews.length > 0) {
-        console.log('\n' + chalk.white('Related News:'));
-        analysis.relatedNews.forEach(news => {
-          const impactColor = news.impact === 'positive' ? chalk.green : 
-                            news.impact === 'negative' ? chalk.red : chalk.gray;
-          console.log(`• ${news.title} ${impactColor(`(${news.impact})`)}`);
-        });
-      }
+      console.log('\n' + chalk.white('Reasoning:'));
+      console.log(analysis.reasoning);
     }
     
     console.log('\n' + chalk.gray('Note: This analysis is based on available data and AI interpretation. Always do your own research.'));

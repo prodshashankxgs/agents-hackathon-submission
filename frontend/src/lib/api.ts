@@ -82,32 +82,28 @@ export interface MarketStatus {
 // Advanced trading types
 export interface HedgeIntent {
   type: 'hedge'
-  primaryPosition: {
-    symbol: string
-    currentValue?: number
-    shares?: number
-  }
+  primarySymbol: string
   hedgeReason: string
-  timeframe?: string
-  riskTolerance?: 'conservative' | 'moderate' | 'aggressive'
+  timeframe: string
+  riskTolerance: 'conservative' | 'moderate' | 'aggressive'
 }
 
 export interface MarketAnalysisIntent {
   type: 'analysis'
   symbols: string[]
-  analysisType: 'fundamental' | 'technical' | 'sentiment' | 'risk'
-  context?: string
-  timeframe?: string
+  analysisType: 'technical' | 'fundamental' | 'sentiment' | 'comprehensive'
+  timeframe: string
+  focusAreas: string[]
 }
 
 export interface TradeRecommendationIntent {
   type: 'recommendation'
   scenario: string
-  constraints?: {
-    maxRisk?: number
-    sectors?: string[]
-    excludeSymbols?: string[]
-  }
+  symbols: string[]
+  investmentAmount?: number
+  riskTolerance: 'conservative' | 'moderate' | 'aggressive'
+  timeframe: string
+  strategyType: 'growth' | 'value' | 'income' | 'momentum' | 'general'
 }
 
 export type AdvancedTradeIntent = 
@@ -119,30 +115,27 @@ export type AdvancedTradeIntent =
 export interface HedgeRecommendation {
   strategy: string
   instruments: Array<{
+    type: 'option' | 'etf' | 'future' | 'stock'
     symbol: string
     action: 'buy' | 'sell'
     quantity: number
-    rationale: string
+    reasoning: string
   }>
-  estimatedCost: number
-  riskReduction: string
-  explanation: string
+  costEstimate: number
+  riskReduction: number
+  exitConditions: string[]
+  timeline: string
 }
 
 export interface MarketAnalysis {
   symbol: string
-  currentPrice: number
-  analysis: {
-    sentiment: 'bullish' | 'bearish' | 'neutral'
-    riskFactors: string[]
-    opportunities: string[]
-    recommendation: string
-  }
-  relatedNews?: Array<{
-    title: string
-    summary: string
-    impact: 'positive' | 'negative' | 'neutral'
-  }>
+  sentiment: 'bullish' | 'bearish' | 'neutral'
+  confidence: number
+  riskFactors: string[]
+  opportunities: string[]
+  priceTarget: number
+  recommendation: 'buy' | 'sell' | 'hold'
+  reasoning: string
 }
 
 // API functions
@@ -183,6 +176,21 @@ export const apiService = {
 
   async getMarketStatus(): Promise<MarketStatus> {
     const response = await api.get('/market/status')
+    return response.data
+  },
+
+  // Portfolio history
+  async getPortfolioHistory(period: string = '1M', timeframe: string = '1D'): Promise<{
+    timestamp: number[]
+    equity: number[]
+    profit_loss: number[]
+    profit_loss_pct: number[]
+    base_value: number
+    timeframe: string
+  }> {
+    const response = await api.get('/portfolio/history', {
+      params: { period, timeframe }
+    })
     return response.data
   },
 

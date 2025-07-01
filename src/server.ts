@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { WebSocket, WebSocketServer } from 'ws';
 import { config } from './config';
-import { OpenAIService } from './llm/openai-service';
+import { ClaudeService } from './llm/claude-service';
 import { AdvancedTradingService } from './llm/advanced-trading-service';
 import { AlpacaAdapter } from './brokers/alpaca-adapter';
 import { ValidationService } from './trading/validation-service';
@@ -16,10 +16,25 @@ app.use(cors());
 app.use(express.json());
 
 // Initialize services
-const openAI = new OpenAIService();
+const claudeService = new ClaudeService();
 const advancedTrading = new AdvancedTradingService();
 const broker = new AlpacaAdapter();
 const validator = new ValidationService(broker);
+
+// Development mode warnings
+if (config.nodeEnv === 'development') {
+  console.log('\n🔧 Running in DEVELOPMENT mode');
+  
+  if (config.anthropicApiKey === 'development-mock-key') {
+    console.warn('⚠️  Using mock Anthropic API key - AI features will not work');
+  }
+  
+  if (config.alpacaApiKey === 'development-mock-key') {
+    console.warn('⚠️  Using mock Alpaca API key - Trading features will not work');
+  }
+  
+  console.log('\n💡 To enable full functionality, add your API keys to the .env file\n');
+}
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -39,8 +54,8 @@ app.post('/api/trade/parse', async (req, res) => {
       return res.status(400).json({ error: 'Invalid input provided' });
     }
 
-    const intent = await openAI.parseTradeIntent(input);
-    const summary = openAI.generateTradeSummary(intent);
+    const intent = await claudeService.parseTradeIntent(input);
+    const summary = claudeService.generateTradeSummary(intent);
     
     return res.json({ intent, summary });
   } catch (error) {
@@ -166,6 +181,63 @@ app.get('/api/market/status', async (req, res) => {
   }
 })
 
+// Get portfolio history
+app.get('/api/portfolio/history', async (req, res) => {
+  try {
+    const { period = '1M', timeframe = '1D' } = req.query;
+    
+    console.log(`Portfolio history request: period=${period}, timeframe=${timeframe}`);
+    
+    const history = await broker.getPortfolioHistory(
+      period as string, 
+      timeframe as string
+    );
+    
+    // Validate the response before sending
+    if (!history || typeof history !== 'object') {
+      console.warn('Invalid portfolio history response:', history);
+      return res.status(500).json({ 
+        error: 'Invalid portfolio history data received',
+        details: 'The broker returned invalid data'
+      });
+    }
+    
+    // Ensure required fields exist
+    if (!history.timestamp || !Array.isArray(history.timestamp)) {
+      console.warn('Missing or invalid timestamp data');
+      return res.status(500).json({ 
+        error: 'Invalid portfolio history format',
+        details: 'Missing timestamp data'
+      });
+    }
+    
+    return res.json(history);
+  } catch (error: any) {
+    console.error('Portfolio history error:', error);
+    
+    // Try to provide a more helpful error message
+    let errorMessage = 'Failed to get portfolio history';
+    let statusCode = 500;
+    
+    if (error.message && error.message.includes('unauthorized')) {
+      errorMessage = 'API credentials are invalid or expired';
+      statusCode = 401;
+    } else if (error.message && error.message.includes('rate limit')) {
+      errorMessage = 'API rate limit exceeded, please try again later';
+      statusCode = 429;
+    } else if (error.message && error.message.includes('new account')) {
+      errorMessage = 'Portfolio history not available for new accounts';
+      statusCode = 404;
+    }
+    
+    return res.status(statusCode).json({ 
+      error: errorMessage,
+      details: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Advanced trading endpoints
 app.post('/api/advanced/parse', async (req, res) => {
   try {
@@ -280,8 +352,8 @@ app.post('/api/command/parse', async (req, res) => {
 
     console.log('🎯 Parsing command:', command);
 
-    // Use existing OpenAI service to parse the command
-    const intent = await openAI.parseTradeIntent(command);
+            // Use existing Claude service to parse the command
+        const intent = await claudeService.parseTradeIntent(command);
     console.log('✅ Parsed intent:', JSON.stringify(intent, null, 2));
     
     // Extract errors and warnings
@@ -333,9 +405,9 @@ app.post('/api/command/execute', async (req, res) => {
 
     console.log('🎯 Executing command:', command);
 
-    // Parse the command using OpenAI
-    console.log('🤖 Parsing command with OpenAI...');
-    const intent = await openAI.parseTradeIntent(command);
+            // Parse the command using Claude
+        console.log('🤖 Parsing command with Claude...');
+        const intent = await claudeService.parseTradeIntent(command);
     console.log('✅ Parsed intent:', JSON.stringify(intent, null, 2));
     
     // Validate the trade

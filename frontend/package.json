@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" --names \"backend,frontend\" --prefix-colors \"cyan,magenta\"",
+    "dev:sequential": "npm run dev:backend-wait && npm run dev:frontend-only",
+    "dev:backend-wait": "cd .. && npm run dev:server & sleep 3",
     "dev:frontend": "vite",
     "dev:backend": "cd .. && npm run dev:server",
     "dev:frontend-only": "vite",

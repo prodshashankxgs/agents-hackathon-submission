@@ -32,6 +32,7 @@ export interface TradeResult {
 export interface AccountInfo {
   accountId: string;
   buyingPower: number;
+  dayTradingBuyingPower?: number;
   portfolioValue: number;
   dayTradeCount: number;
   positions: Position[];
@@ -63,6 +64,7 @@ export interface BrokerAdapter {
   getAccountInfo(): Promise<AccountInfo>;
   getMarketData(symbol: string): Promise<MarketData>;
   isMarketOpen(): Promise<boolean>;
+  getPortfolioHistory(period?: string, timeframe?: string): Promise<any>;
 }
 
 // OpenAI function calling types
@@ -80,6 +82,7 @@ export interface OpenAIMessage {
 // Configuration types
 export interface AppConfig {
   openaiApiKey: string;
+  anthropicApiKey: string;
   alpacaApiKey: string;
   alpacaSecretKey: string;
   alpacaBaseUrl: string;
@@ -132,32 +135,28 @@ export class LLMError extends TradingError {
 // Advanced trading intent types
 export interface HedgeIntent {
   type: 'hedge';
-  primaryPosition: {
-    symbol: string;
-    currentValue?: number;
-    shares?: number;
-  };
+  primarySymbol: string;
   hedgeReason: string;
-  timeframe?: string;
-  riskTolerance?: 'conservative' | 'moderate' | 'aggressive';
+  timeframe: string;
+  riskTolerance: 'conservative' | 'moderate' | 'aggressive';
 }
 
 export interface MarketAnalysisIntent {
   type: 'analysis';
   symbols: string[];
-  analysisType: 'fundamental' | 'technical' | 'sentiment' | 'risk';
-  context?: string;
-  timeframe?: string;
+  analysisType: 'technical' | 'fundamental' | 'sentiment' | 'comprehensive';
+  timeframe: string;
+  focusAreas: string[];
 }
 
 export interface TradeRecommendationIntent {
   type: 'recommendation';
   scenario: string;
-  constraints?: {
-    maxRisk?: number;
-    sectors?: string[];
-    excludeSymbols?: string[];
-  };
+  symbols: string[];
+  investmentAmount?: number;
+  riskTolerance: 'conservative' | 'moderate' | 'aggressive';
+  timeframe: string;
+  strategyType: 'growth' | 'value' | 'income' | 'momentum' | 'general';
 }
 
 export type AdvancedTradeIntent = 
@@ -169,28 +168,25 @@ export type AdvancedTradeIntent =
 export interface HedgeRecommendation {
   strategy: string;
   instruments: Array<{
+    type: 'option' | 'etf' | 'future' | 'stock';
     symbol: string;
     action: 'buy' | 'sell';
     quantity: number;
-    rationale: string;
+    reasoning: string;
   }>;
-  estimatedCost: number;
-  riskReduction: string;
-  explanation: string;
+  costEstimate: number;
+  riskReduction: number;
+  exitConditions: string[];
+  timeline: string;
 }
 
 export interface MarketAnalysis {
   symbol: string;
-  currentPrice: number;
-  analysis: {
-    sentiment: 'bullish' | 'bearish' | 'neutral';
-    riskFactors: string[];
-    opportunities: string[];
-    recommendation: string;
-  };
-  relatedNews?: Array<{
-    title: string;
-    summary: string;
-    impact: 'positive' | 'negative' | 'neutral';
-  }>;
+  sentiment: 'bullish' | 'bearish' | 'neutral';
+  confidence: number;
+  riskFactors: string[];
+  opportunities: string[];
+  priceTarget: number;
+  recommendation: 'buy' | 'sell' | 'hold';
+  reasoning: string;
 } 

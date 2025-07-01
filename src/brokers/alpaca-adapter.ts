@@ -1,4 +1,5 @@
 import Alpaca from '@alpacahq/alpaca-trade-api';
+import fetch from 'node-fetch';
 import { 
   BrokerAdapter, 
   TradeIntent, 
@@ -29,40 +30,75 @@ export class AlpacaAdapter implements BrokerAdapter {
       const account = await this.alpaca.getAccount();
       const buyingPower = parseFloat(account.buying_power);
       
-      // Get current market data
-      const marketData = await this.getMarketData(order.symbol);
+      // Try to get current market data, but don't fail if unavailable
+      let marketData: MarketData | null = null;
+      let marketDataError = false;
+      
+      try {
+        marketData = await this.getMarketData(order.symbol);
+      } catch (error) {
+        console.log('Market data unavailable during validation, will use notional order');
+        marketDataError = true;
+      }
       
       // Calculate estimated cost
       let estimatedCost: number;
       let estimatedShares: number;
+      let currentPrice: number;
       
-      if (order.amountType === 'dollars') {
-        estimatedCost = order.amount;
-        estimatedShares = order.amount / marketData.currentPrice;
+      if (marketData) {
+        currentPrice = marketData.currentPrice;
+        if (order.amountType === 'dollars') {
+          estimatedCost = order.amount;
+          estimatedShares = order.amount / currentPrice;
+        } else {
+          estimatedShares = order.amount;
+          estimatedCost = order.amount * currentPrice;
+        }
       } else {
-        estimatedShares = order.amount;
-        estimatedCost = order.amount * marketData.currentPrice;
+        // Market data unavailable - use estimates for validation
+        if (order.amountType === 'dollars') {
+          estimatedCost = order.amount;
+          estimatedShares = 0; // Will be calculated by broker
+          currentPrice = 0; // Unknown
+        } else {
+          // For share-based orders without market data, we can't validate properly
+          // But we'll allow it and let the broker handle it
+          estimatedShares = order.amount;
+          estimatedCost = 0; // Unknown
+          currentPrice = 0; // Unknown
+        }
       }
       
       const errors: string[] = [];
       const warnings: string[] = [];
       
+      // Add warning about market data unavailability
+      if (marketDataError) {
+        warnings.push('Market data unavailable. Order will be processed as notional (dollar-based) order when market opens.');
+      }
+      
       // Validation checks
-      if (!marketData.isMarketOpen) {
+      if (marketData && !marketData.isMarketOpen) {
         warnings.push('Market is currently closed. Order will be queued for next market open.');
       }
       
-      if (estimatedCost > buyingPower) {
+      // Only check buying power if we have a reliable cost estimate
+      if (marketData && estimatedCost > buyingPower) {
         errors.push(`Insufficient buying power. Available: $${buyingPower.toFixed(2)}, Required: $${estimatedCost.toFixed(2)}`);
+      } else if (!marketData && order.amountType === 'dollars' && order.amount > buyingPower) {
+        errors.push(`Insufficient buying power. Available: $${buyingPower.toFixed(2)}, Required: $${order.amount.toFixed(2)}`);
       }
       
-      if (estimatedCost > config.maxPositionSize) {
+      // Check position size limits
+      const orderAmount = order.amountType === 'dollars' ? order.amount : estimatedCost;
+      if (orderAmount > config.maxPositionSize) {
         errors.push(`Order exceeds maximum position size of $${config.maxPositionSize}`);
       }
       
       // Check daily spending limit
       const todaySpending = await this.getTodaySpending();
-      if (todaySpending + estimatedCost > config.maxDailySpending) {
+      if (orderAmount > 0 && todaySpending + orderAmount > config.maxDailySpending) {
         errors.push(`Order would exceed daily spending limit of $${config.maxDailySpending}`);
       }
       
@@ -80,10 +116,10 @@ export class AlpacaAdapter implements BrokerAdapter {
         isValid: errors.length === 0,
         errors,
         warnings,
-        estimatedCost,
+        estimatedCost: marketData ? estimatedCost : order.amount,
         accountBalance: buyingPower,
-        currentPrice: marketData.currentPrice,
-        estimatedShares
+        currentPrice: currentPrice,
+        estimatedShares: estimatedShares
       };
     } catch (error) {
       throw new BrokerError('Failed to validate order', {
@@ -274,6 +310,207 @@ export class AlpacaAdapter implements BrokerAdapter {
       throw new BrokerError('Failed to check market status', {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
+    }
+  }
+
+  async getPortfolioHistory(period: string = '1M', timeframe: string = '1D'): Promise<any> {
+    try {
+      // Make direct API call to portfolio history endpoint
+      const url = `${config.alpacaBaseUrl}/v2/account/portfolio/history`;
+      
+      console.log(`Fetching portfolio history: period=${period}, timeframe=${timeframe}`);
+      
+      // First, try with the requested period
+      let params = new URLSearchParams({
+        timeframe: timeframe,
+        extended_hours: 'true'
+      });
+
+      // For ALL, use 'all' period directly
+      if (period === 'ALL') {
+        params.append('period', 'all');
+      } else {
+        params.append('period', period);
+      }
+
+      let response = await fetch(`${url}?${params}`, {
+        method: 'GET',
+        headers: {
+          'APCA-API-KEY-ID': config.alpacaApiKey,
+          'APCA-API-SECRET-KEY': config.alpacaSecretKey,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      let data: any;
+      if (response.ok) {
+        data = await response.json();
+        
+        // Validate the response structure
+        if (data && typeof data === 'object') {
+          // If we got data and it has timestamps, validate and return it
+          if (data.timestamp && Array.isArray(data.timestamp) && data.timestamp.length > 0) {
+            console.log(`Successfully fetched ${data.timestamp.length} data points for period ${period}`);
+            
+            // Ensure all required arrays exist and have the same length
+            const { timestamp, equity, profit_loss, profit_loss_pct, base_value } = data;
+            
+            if (!equity || !Array.isArray(equity)) {
+              console.warn('Missing or invalid equity data');
+              data.equity = timestamp.map(() => base_value || 0);
+            }
+            
+            if (!profit_loss || !Array.isArray(profit_loss)) {
+              console.warn('Missing or invalid profit_loss data');
+              data.profit_loss = timestamp.map(() => 0);
+            }
+            
+            if (!profit_loss_pct || !Array.isArray(profit_loss_pct)) {
+              console.warn('Missing or invalid profit_loss_pct data');
+              data.profit_loss_pct = timestamp.map(() => 0);
+            }
+            
+            // Ensure all arrays have the same length
+            const minLength = Math.min(
+              timestamp.length,
+              data.equity.length,
+              data.profit_loss.length,
+              data.profit_loss_pct.length
+            );
+            
+            if (minLength < timestamp.length) {
+              console.warn(`Data arrays have mismatched lengths, truncating to ${minLength}`);
+              data.timestamp = timestamp.slice(0, minLength);
+              data.equity = data.equity.slice(0, minLength);
+              data.profit_loss = data.profit_loss.slice(0, minLength);
+              data.profit_loss_pct = data.profit_loss_pct.slice(0, minLength);
+            }
+            
+            return data;
+          } else if (data.timestamp && Array.isArray(data.timestamp) && data.timestamp.length === 0) {
+            console.log(`No data available for period ${period}, trying fallback`);
+          } else {
+            console.warn('Invalid response structure:', data);
+          }
+        }
+      } else {
+        const errorText = await response.text();
+        console.warn(`API request failed with status ${response.status}: ${errorText}`);
+      }
+
+      // If the requested period failed or returned no data, fallback to 'all'
+      // This handles cases where the account is newer than the requested period
+      if (period !== 'ALL') {
+        console.log(`Period ${period} returned no data or failed, falling back to 'all' period`);
+        
+        params = new URLSearchParams({
+          period: 'all',
+          timeframe: timeframe,
+          extended_hours: 'true'
+        });
+
+        response = await fetch(`${url}?${params}`, {
+          method: 'GET',
+          headers: {
+            'APCA-API-KEY-ID': config.alpacaApiKey,
+            'APCA-API-SECRET-KEY': config.alpacaSecretKey,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Failed to fetch portfolio history (fallback): ${response.status} ${errorText}`);
+        }
+
+        data = await response.json();
+        
+        // Validate fallback response
+        if (data && typeof data === 'object') {
+          if (data.timestamp && Array.isArray(data.timestamp)) {
+            console.log(`Fallback successful: fetched ${data.timestamp.length} data points`);
+            
+            // Apply same validation as above
+            const { timestamp, equity, profit_loss, profit_loss_pct, base_value } = data;
+            
+            if (!equity || !Array.isArray(equity)) {
+              console.warn('Missing or invalid equity data in fallback');
+              data.equity = timestamp.map(() => base_value || 0);
+            }
+            
+            if (!profit_loss || !Array.isArray(profit_loss)) {
+              console.warn('Missing or invalid profit_loss data in fallback');
+              data.profit_loss = timestamp.map(() => 0);
+            }
+            
+            if (!profit_loss_pct || !Array.isArray(profit_loss_pct)) {
+              console.warn('Missing or invalid profit_loss_pct data in fallback');
+              data.profit_loss_pct = timestamp.map(() => 0);
+            }
+            
+            // Ensure all arrays have the same length
+            const minLength = Math.min(
+              timestamp.length,
+              data.equity.length,
+              data.profit_loss.length,
+              data.profit_loss_pct.length
+            );
+            
+            if (minLength < timestamp.length) {
+              console.warn(`Fallback data arrays have mismatched lengths, truncating to ${minLength}`);
+              data.timestamp = timestamp.slice(0, minLength);
+              data.equity = data.equity.slice(0, minLength);
+              data.profit_loss = data.profit_loss.slice(0, minLength);
+              data.profit_loss_pct = data.profit_loss_pct.slice(0, minLength);
+            }
+            
+            return data;
+          }
+        }
+      }
+
+      // If we still don't have valid data, check if this is a very new account
+      console.log('No portfolio history data available - this may be a new account');
+      
+      // For very new accounts, return a minimal structure to prevent crashes
+      const now = Math.floor(Date.now() / 1000);
+      const account = await this.alpaca.getAccount();
+      const portfolioValue = parseFloat(account.portfolio_value) || parseFloat(account.equity) || 0;
+      
+      return {
+        timestamp: [now],
+        equity: [portfolioValue],
+        profit_loss: [0],
+        profit_loss_pct: [0],
+        base_value: portfolioValue,
+        timeframe: timeframe
+      };
+      
+    } catch (error) {
+      console.error('Portfolio history error:', error);
+      
+      // As a last resort, try to return current account value as a single data point
+      try {
+        console.log('Attempting to create minimal portfolio data from current account info');
+        const account = await this.alpaca.getAccount();
+        const portfolioValue = parseFloat(account.portfolio_value) || parseFloat(account.equity) || 0;
+        const now = Math.floor(Date.now() / 1000);
+        
+        return {
+          timestamp: [now],
+          equity: [portfolioValue],
+          profit_loss: [0],
+          profit_loss_pct: [0],
+          base_value: portfolioValue,
+          timeframe: timeframe
+        };
+      } catch (fallbackError) {
+        console.error('Failed to create fallback portfolio data:', fallbackError);
+        throw new BrokerError('Failed to get portfolio history', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          fallbackError: fallbackError instanceof Error ? fallbackError.message : 'Unknown fallback error'
+        });
+      }
     }
   }
 

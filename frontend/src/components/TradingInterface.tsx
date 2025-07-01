@@ -14,11 +14,16 @@ import {
   XIcon,
   ShieldIcon,
   BarChart3Icon,
-  LightbulbIcon
+  LightbulbIcon,
+  MessageSquareIcon,
+  BrainCircuitIcon,
+  ShieldCheckIcon,
+  RocketIcon
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { apiService, type HedgeRecommendation, type MarketAnalysis } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
+import { ProcessingSteps, type ProcessingStep } from './ProcessingSteps'
 
 interface ParsedCommand {
   action: 'buy' | 'sell'
@@ -46,6 +51,7 @@ export function TradingInterface() {
   const [marketAnalysis, setMarketAnalysis] = useState<MarketAnalysis[] | null>(null)
   const [tradeRecommendations, setTradeRecommendations] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [loadingMessage, setLoadingMessage] = useState('')
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [tradeHistory, setTradeHistory] = useState<Array<{
     command: string
@@ -53,8 +59,83 @@ export function TradingInterface() {
     timestamp: Date
   }>>([])
   
+  // New state for processing steps
+  const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>([])
+  const [currentStep, setCurrentStep] = useState(-1)
+  const [showProcessingContainer, setShowProcessingContainer] = useState(false)
+  const [requestType, setRequestType] = useState<'trade' | 'hedge' | 'analysis' | 'recommendation' | null>(null)
+  
   const inputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
+
+  // Helper functions for processing steps
+  const initializeProcessingSteps = (type: string) => {
+    let steps: ProcessingStep[] = []
+    
+    if (type === 'trade') {
+      steps = [
+        { id: 'parse', label: 'Understanding your request', status: 'pending' },
+        { id: 'validate', label: 'Validating trade parameters', status: 'pending' },
+        { id: 'confirm', label: 'Ready for confirmation', status: 'pending' }
+      ]
+    } else if (type === 'hedge') {
+      steps = [
+        { id: 'parse', label: 'Analyzing your hedging request', status: 'pending' },
+        { id: 'portfolio', label: 'Reviewing portfolio positions', status: 'pending' },
+        { id: 'strategy', label: 'Calculating optimal hedge strategy', status: 'pending' },
+        { id: 'recommend', label: 'Preparing recommendations', status: 'pending' }
+      ]
+    } else if (type === 'analysis') {
+      steps = [
+        { id: 'parse', label: 'Processing analysis request', status: 'pending' },
+        { id: 'market', label: 'Gathering market data', status: 'pending' },
+        { id: 'analyze', label: 'Performing technical analysis', status: 'pending' },
+        { id: 'report', label: 'Generating insights', status: 'pending' }
+      ]
+    } else if (type === 'recommendation') {
+      steps = [
+        { id: 'parse', label: 'Understanding your criteria', status: 'pending' },
+        { id: 'scan', label: 'Scanning market opportunities', status: 'pending' },
+        { id: 'evaluate', label: 'Evaluating risk/reward', status: 'pending' },
+        { id: 'recommend', label: 'Finalizing recommendations', status: 'pending' }
+      ]
+    }
+    
+    setProcessingSteps(steps)
+    setCurrentStep(-1)
+    setShowProcessingContainer(true)
+  }
+
+  const updateStepStatus = (stepIndex: number, status: ProcessingStep['status'], message?: string) => {
+    setProcessingSteps(prev => prev.map((step, idx) => 
+      idx === stepIndex 
+        ? { ...step, status, message } 
+        : step
+    ))
+  }
+
+  const advanceToStep = async (stepIndex: number) => {
+    // Complete previous step
+    if (stepIndex > 0) {
+      updateStepStatus(stepIndex - 1, 'complete')
+    }
+    
+    // Start new step
+    setCurrentStep(stepIndex)
+    if (stepIndex < processingSteps.length) {
+      updateStepStatus(stepIndex, 'processing')
+    }
+    
+    // Add a small delay for animation
+    await new Promise(resolve => setTimeout(resolve, 300))
+  }
+
+  const resetProcessing = () => {
+    setProcessingSteps([])
+    setCurrentStep(-1)
+    setShowProcessingContainer(false)
+    setRequestType(null)
+  }
 
   // Auto-focus input
   useEffect(() => {
@@ -90,6 +171,7 @@ export function TradingInterface() {
       setCommand('')
       setParsedCommand(null)
       setShowConfirmation(false)
+      resetProcessing()
       // Refresh account data after successful trade
       if (data.success) {
         queryClient.invalidateQueries({ queryKey: ['account'] })
@@ -106,6 +188,9 @@ export function TradingInterface() {
         timestamp: new Date()
       }, ...prev])
       setShowConfirmation(false)
+      if (currentStep >= 0) {
+        updateStepStatus(currentStep, 'error', error.message || 'Trade execution failed')
+      }
     }
   })
 
@@ -114,19 +199,30 @@ export function TradingInterface() {
     if (!command.trim() || isLoading) return
     
     setIsLoading(true)
+    setLoadingMessage('Understanding your request...')
     setParsedCommand(null)
     setHedgeRecommendation(null)
     setMarketAnalysis(null)
     setTradeRecommendations(null)
     setShowConfirmation(false)
+    resetProcessing()
     
     try {
       // First try to parse as advanced intent
       const { intent, type } = await apiService.parseAdvancedIntent(command)
       
+      setRequestType(type as any)
+      initializeProcessingSteps(type)
+      
       if (type === 'trade') {
+        await advanceToStep(0) // Understanding request
+        
         // Handle as regular trade
         const tradeIntent = intent as any
+        
+        await advanceToStep(1) // Validating parameters
+        await new Promise(resolve => setTimeout(resolve, 800))
+        
         setParsedCommand({
           action: tradeIntent.action,
           symbol: tradeIntent.symbol,
@@ -136,24 +232,61 @@ export function TradingInterface() {
           limitPrice: tradeIntent.limitPrice,
           isValid: true
         })
+        
+        await advanceToStep(2) // Ready for confirmation
+        updateStepStatus(2, 'complete', 'Trade ready for execution')
         setShowConfirmation(true)
+        
       } else if (type === 'hedge') {
+        await advanceToStep(0) // Analyzing request
+        
         // Get hedge recommendations
+        await advanceToStep(1) // Reviewing portfolio
+        await new Promise(resolve => setTimeout(resolve, 600))
+        
+        await advanceToStep(2) // Calculating strategy
         const { recommendation } = await apiService.getHedgeRecommendation(intent as any)
+        
+        await advanceToStep(3) // Preparing recommendations
         setHedgeRecommendation(recommendation)
+        updateStepStatus(3, 'complete', 'Hedge strategy ready')
+        
       } else if (type === 'analysis') {
-        // Get market analysis
+        await advanceToStep(0) // Processing request
+        
+        await advanceToStep(1) // Gathering market data
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
+        await advanceToStep(2) // Performing analysis
         const { analyses } = await apiService.analyzeMarket(intent as any)
+        
+        await advanceToStep(3) // Generating insights
         setMarketAnalysis(analyses)
+        updateStepStatus(3, 'complete', 'Analysis complete')
+        
       } else if (type === 'recommendation') {
-        // Get trade recommendations
+        await advanceToStep(0) // Understanding criteria
+        
+        await advanceToStep(1) // Scanning market
+        await new Promise(resolve => setTimeout(resolve, 700))
+        
+        await advanceToStep(2) // Evaluating opportunities
         const { recommendations } = await apiService.getTradeRecommendations(intent as any)
+        
+        await advanceToStep(3) // Finalizing recommendations
         setTradeRecommendations(recommendations)
+        updateStepStatus(3, 'complete', 'Recommendations ready')
       }
       
       setIsLoading(false)
+      setLoadingMessage('')
     } catch (error: any) {
       console.error('Advanced parse error:', error)
+      
+      // Mark current step as error
+      if (currentStep >= 0 && currentStep < processingSteps.length) {
+        updateStepStatus(currentStep, 'error', error.message || 'An error occurred')
+      }
       
       // Check if this looks like a hedging, analysis, or recommendation query
       const lowerCommand = command.toLowerCase()
@@ -176,13 +309,27 @@ export function TradingInterface() {
       } else {
         // Fallback to simple command parsing for trade-like queries
         try {
+          // Initialize simple trade processing
+          setRequestType('trade')
+          initializeProcessingSteps('trade')
+          
+          await advanceToStep(0) // Understanding request
           const parsed = await apiService.parseCommand(command)
+          
+          await advanceToStep(1) // Validating parameters
           setParsedCommand(parsed)
           
           if (parsed.isValid) {
+            await advanceToStep(2) // Ready for confirmation
+            updateStepStatus(2, 'complete', 'Trade ready for execution')
             setShowConfirmation(true)
+          } else {
+            updateStepStatus(1, 'error', 'Invalid trade parameters')
           }
         } catch (parseError: any) {
+          if (currentStep >= 0) {
+            updateStepStatus(currentStep, 'error', parseError.message || 'Failed to parse command')
+          }
           setParsedCommand({
             action: 'buy',
             symbol: '',
@@ -193,6 +340,7 @@ export function TradingInterface() {
         }
       }
       setIsLoading(false)
+      setLoadingMessage('')
     }
   }
 
@@ -207,6 +355,7 @@ export function TradingInterface() {
     setShowConfirmation(false)
     setParsedCommand(null)
     setCommand('')
+    resetProcessing()
     inputRef.current?.focus()
   }
 
@@ -244,25 +393,57 @@ export function TradingInterface() {
             />
             
             {/* Loading indicator */}
-            {isLoading && (
-              <div className="absolute right-4 top-1/2 -translate-y-1/2">
+            {isLoading && !showProcessingContainer && (
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
                 <LoaderIcon className="w-5 h-5 text-gray-400 animate-spin" />
+                {loadingMessage && (
+                  <span className="text-sm text-gray-500 animate-pulse">{loadingMessage}</span>
+                )}
               </div>
             )}
             
             {/* Send button when not loading */}
             {!isLoading && command.trim() && (
-              <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                <div className="w-7 h-7 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110">
-                  <ArrowRightIcon className="w-3.5 h-3.5 text-white" />
-                </div>
-              </div>
+              <button
+                type="submit"
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110"
+              >
+                <ArrowRightIcon className="w-4 h-4 text-white" />
+              </button>
             )}
           </div>
 
-          {/* Command Preview */}
-          {parsedCommand && (
-            <div className={`p-4 rounded-xl border transition-all duration-200 ${
+          {/* Processing Container */}
+          {showProcessingContainer && (
+            <div className="processing-container result-container-enter">
+              <div className="flex items-start space-x-4">
+                <div className="flex-shrink-0 mt-1">
+                  {requestType === 'trade' && <RocketIcon className="w-6 h-6 text-gray-600" />}
+                  {requestType === 'hedge' && <ShieldCheckIcon className="w-6 h-6 text-blue-600" />}
+                  {requestType === 'analysis' && <BrainCircuitIcon className="w-6 h-6 text-purple-600" />}
+                  {requestType === 'recommendation' && <LightbulbIcon className="w-6 h-6 text-amber-600" />}
+                </div>
+                
+                <div className="flex-1 space-y-4">
+                  <div>
+                    <h3 className="font-semibold text-gray-900 mb-1">
+                      {requestType === 'trade' && 'Processing Trade Request'}
+                      {requestType === 'hedge' && 'Analyzing Hedge Strategy'}
+                      {requestType === 'analysis' && 'Performing Market Analysis'}
+                      {requestType === 'recommendation' && 'Generating Recommendations'}
+                    </h3>
+                    <p className="text-sm text-gray-600">"{command}"</p>
+                  </div>
+                  
+                  <ProcessingSteps steps={processingSteps} currentStep={currentStep} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Command Preview - Now integrated with processing container */}
+          {parsedCommand && showProcessingContainer && (
+            <div className={`mt-4 p-4 rounded-xl border transition-all duration-200 slide-up-fade-in ${
               parsedCommand.isValid 
                 ? 'bg-green-50 border-green-200' 
                 : 'bg-red-50 border-red-200'
@@ -384,9 +565,9 @@ export function TradingInterface() {
             </div>
           )}
 
-          {/* Hedge Recommendation Display */}
-          {hedgeRecommendation && (
-            <div className="p-4 rounded-xl border bg-blue-50 border-blue-200">
+          {/* Hedge Recommendation Display - Integrated */}
+          {hedgeRecommendation && showProcessingContainer && (
+            <div className="mt-4 p-4 rounded-xl border bg-blue-50 border-blue-200 slide-up-fade-in">
               <div className="flex items-start space-x-3">
                 <ShieldIcon className="w-5 h-5 text-blue-600 mt-0.5" />
                 <div className="flex-1 space-y-3">
@@ -402,7 +583,7 @@ export function TradingInterface() {
                             {instrument.action.toUpperCase()} {instrument.quantity} {instrument.symbol}
                           </span>
                         </div>
-                        <p className="text-blue-700 text-xs">{instrument.rationale}</p>
+                        <p className="text-blue-700 text-xs">{instrument.reasoning}</p>
                       </div>
                     ))}
                   </div>
@@ -410,23 +591,37 @@ export function TradingInterface() {
                   <div className="bg-white/60 p-3 rounded-lg text-sm space-y-1">
                     <div className="flex justify-between">
                       <span>Estimated Cost:</span>
-                      <span className="font-medium">{formatCurrency(hedgeRecommendation.estimatedCost)}</span>
+                      <span className="font-medium">{formatCurrency(hedgeRecommendation.costEstimate)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Risk Reduction:</span>
-                      <span className="font-medium">{hedgeRecommendation.riskReduction}</span>
+                      <span className="font-medium">{hedgeRecommendation.riskReduction}%</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Timeline:</span>
+                      <span className="font-medium">{hedgeRecommendation.timeline}</span>
                     </div>
                   </div>
                   
-                  <p className="text-sm text-blue-800">{hedgeRecommendation.explanation}</p>
+                  <div className="bg-white/60 p-3 rounded-lg">
+                    <h4 className="text-sm font-medium text-blue-900 mb-2">Exit Conditions:</h4>
+                    <ul className="space-y-1">
+                      {hedgeRecommendation.exitConditions.map((condition, idx) => (
+                        <li key={idx} className="text-sm text-blue-800 flex items-start">
+                          <span className="text-blue-500 mr-2">•</span>
+                          {condition}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Market Analysis Display */}
-          {marketAnalysis && marketAnalysis.length > 0 && (
-            <div className="p-4 rounded-xl border bg-purple-50 border-purple-200">
+          {/* Market Analysis Display - Integrated */}
+          {marketAnalysis && marketAnalysis.length > 0 && showProcessingContainer && (
+            <div className="mt-4 p-4 rounded-xl border bg-purple-50 border-purple-200 slide-up-fade-in">
               <div className="flex items-start space-x-3">
                 <BarChart3Icon className="w-5 h-5 text-purple-600 mt-0.5" />
                 <div className="flex-1 space-y-4">
@@ -437,19 +632,30 @@ export function TradingInterface() {
                       <div className="flex items-start justify-between">
                         <h4 className="font-medium text-purple-900">{analysis.symbol}</h4>
                         <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          analysis.analysis.sentiment === 'bullish' ? 'bg-green-100 text-green-800' :
-                          analysis.analysis.sentiment === 'bearish' ? 'bg-red-100 text-red-800' :
+                          analysis.sentiment === 'bullish' ? 'bg-green-100 text-green-800' :
+                          analysis.sentiment === 'bearish' ? 'bg-red-100 text-red-800' :
                           'bg-gray-100 text-gray-800'
                         }`}>
-                          {analysis.analysis.sentiment.toUpperCase()}
+                          {analysis.sentiment.toUpperCase()}
                         </span>
                       </div>
                       
-                      {analysis.analysis.riskFactors.length > 0 && (
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-purple-700">Confidence:</span>
+                          <span className="font-medium ml-1">{analysis.confidence}%</span>
+                        </div>
+                        <div>
+                          <span className="text-purple-700">Price Target:</span>
+                          <span className="font-medium ml-1">{formatCurrency(analysis.priceTarget)}</span>
+                        </div>
+                      </div>
+                      
+                      {analysis.riskFactors.length > 0 && (
                         <div>
                           <h5 className="text-sm font-medium text-red-700 mb-1">Risk Factors:</h5>
                           <ul className="space-y-1">
-                            {analysis.analysis.riskFactors.map((risk, rIdx) => (
+                            {analysis.riskFactors.map((risk: string, rIdx: number) => (
                               <li key={rIdx} className="text-sm text-purple-800 flex items-start">
                                 <span className="text-red-500 mr-2">•</span>
                                 {risk}
@@ -459,11 +665,11 @@ export function TradingInterface() {
                         </div>
                       )}
                       
-                      {analysis.analysis.opportunities.length > 0 && (
+                      {analysis.opportunities.length > 0 && (
                         <div>
                           <h5 className="text-sm font-medium text-green-700 mb-1">Opportunities:</h5>
                           <ul className="space-y-1">
-                            {analysis.analysis.opportunities.map((opp, oIdx) => (
+                            {analysis.opportunities.map((opp: string, oIdx: number) => (
                               <li key={oIdx} className="text-sm text-purple-800 flex items-start">
                                 <span className="text-green-500 mr-2">•</span>
                                 {opp}
@@ -475,8 +681,9 @@ export function TradingInterface() {
                       
                       <div className="pt-2 border-t border-purple-200">
                         <p className="text-sm text-purple-900">
-                          <span className="font-medium">Recommendation:</span> {analysis.analysis.recommendation}
+                          <span className="font-medium">Recommendation:</span> {analysis.recommendation.toUpperCase()}
                         </p>
+                        <p className="text-sm text-purple-800 mt-1">{analysis.reasoning}</p>
                       </div>
                     </div>
                   ))}
@@ -485,9 +692,9 @@ export function TradingInterface() {
             </div>
           )}
 
-          {/* Trade Recommendations Display */}
-          {tradeRecommendations && (
-            <div className="p-4 rounded-xl border bg-amber-50 border-amber-200">
+          {/* Trade Recommendations Display - Integrated */}
+          {tradeRecommendations && showProcessingContainer && (
+            <div className="mt-4 p-4 rounded-xl border bg-amber-50 border-amber-200 slide-up-fade-in">
               <div className="flex items-start space-x-3">
                 <LightbulbIcon className="w-5 h-5 text-amber-600 mt-0.5" />
                 <div className="flex-1 space-y-3">

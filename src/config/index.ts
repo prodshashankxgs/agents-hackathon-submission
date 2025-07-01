@@ -1,27 +1,62 @@
 import dotenv from 'dotenv';
+import path from 'path';
 import { AppConfig } from '../types';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables with explicit path
+dotenv.config({ path: path.join(__dirname, '../../.env') });
+
+// Debug: Log environment variable loading
+console.log('🔍 Environment variables debug:');
+console.log('Current working directory:', process.cwd());
+console.log('ANTHROPIC_API_KEY exists:', !!process.env.ANTHROPIC_API_KEY);
+console.log('ALPACA_API_KEY exists:', !!process.env.ALPACA_API_KEY);
 
 export function loadConfig(): AppConfig {
+  const isDevelopment = process.env.NODE_ENV !== 'production';
+  
+  // In development, provide helpful instructions if env vars are missing
+  if (isDevelopment) {
+    const missingVars = [];
+    if (!process.env.ANTHROPIC_API_KEY) missingVars.push('ANTHROPIC_API_KEY');
+    if (!process.env.ALPACA_API_KEY) missingVars.push('ALPACA_API_KEY');
+    if (!process.env.ALPACA_SECRET_KEY) missingVars.push('ALPACA_SECRET_KEY');
+    
+    if (missingVars.length > 0) {
+      console.warn('\n⚠️  Missing environment variables:', missingVars.join(', '));
+      console.warn('\n📝 To fix this, create a .env file in the root directory with:');
+      console.warn('----------------------------------------');
+      console.warn('ANTHROPIC_API_KEY=your_anthropic_api_key');
+      console.warn('ALPACA_API_KEY=your_alpaca_api_key');
+      console.warn('ALPACA_SECRET_KEY=your_alpaca_secret_key');
+      console.warn('ALPACA_BASE_URL=https://paper-api.alpaca.markets');
+      console.warn('----------------------------------------');
+      console.warn('\n🔗 Get your API keys from:');
+      console.warn('   - Anthropic: https://console.anthropic.com/');
+      console.warn('   - Alpaca: https://app.alpaca.markets/');
+      console.warn('\n⚡ Running in development mode with mock values...\n');
+    }
+  }
+
+  // In production, require all environment variables
   const requiredEnvVars = [
-    'OPENAI_API_KEY',
+    'ANTHROPIC_API_KEY',
     'ALPACA_API_KEY',
     'ALPACA_SECRET_KEY'
   ];
 
-  // Check for required environment variables
-  for (const envVar of requiredEnvVars) {
-    if (!process.env[envVar]) {
-      throw new Error(`Missing required environment variable: ${envVar}`);
+  if (!isDevelopment) {
+    for (const envVar of requiredEnvVars) {
+      if (!process.env[envVar]) {
+        throw new Error(`Missing required environment variable: ${envVar}`);
+      }
     }
   }
 
   return {
-    openaiApiKey: process.env.OPENAI_API_KEY!,
-    alpacaApiKey: process.env.ALPACA_API_KEY!,
-    alpacaSecretKey: process.env.ALPACA_SECRET_KEY!,
+    openaiApiKey: process.env.OPENAI_API_KEY || '', // Keep for backward compatibility
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY || (isDevelopment ? 'development-mock-key' : ''),
+    alpacaApiKey: process.env.ALPACA_API_KEY || (isDevelopment ? 'development-mock-key' : ''),
+    alpacaSecretKey: process.env.ALPACA_SECRET_KEY || (isDevelopment ? 'development-mock-secret' : ''),
     alpacaBaseUrl: process.env.ALPACA_BASE_URL || 'https://paper-api.alpaca.markets',
     maxDailySpending: parseInt(process.env.MAX_DAILY_SPENDING || '1000'),
     maxPositionSize: parseInt(process.env.MAX_POSITION_SIZE || '500'),

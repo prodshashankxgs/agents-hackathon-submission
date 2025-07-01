@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config';
 import { 
   AdvancedTradeIntent, 
@@ -11,98 +11,157 @@ import {
   AccountInfo,
   Position
 } from '../types';
-import { OpenAIService } from './openai-service';
+import { ClaudeService } from './claude-service';
 
 export class AdvancedTradingService {
-  private openai: OpenAI;
-  private basicService: OpenAIService;
+  private anthropic: Anthropic;
+  private basicService: ClaudeService;
+  private intentCache = new Map<string, { intent: AdvancedTradeIntent; timestamp: number }>();
+  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
   constructor() {
-    this.openai = new OpenAI({
-      apiKey: config.openaiApiKey,
+    this.anthropic = new Anthropic({
+      apiKey: config.anthropicApiKey,
     });
-    this.basicService = new OpenAIService();
+    this.basicService = new ClaudeService();
   }
 
   /**
-   * Parse complex natural language trading requests
+   * Extract JSON from LLM response text
+   * Handles cases where the LLM returns extra text before/after the JSON
    */
-  async parseAdvancedIntent(userInput: string, accountInfo?: AccountInfo): Promise<AdvancedTradeIntent> {
+  private extractJSON(text: string): any {
     try {
-      const tools: OpenAI.ChatCompletionTool[] = [
-        {
-          type: 'function',
-          function: {
-            name: 'classify_intent',
-            description: 'Classify the type of trading request',
-            parameters: {
-              type: 'object',
-              properties: {
-                intent_type: {
-                  type: 'string',
-                  enum: ['trade', 'hedge', 'analysis', 'recommendation'],
-                  description: 'The type of trading intent'
-                },
-                reasoning: {
-                  type: 'string',
-                  description: 'Brief explanation of why this intent type was chosen'
+      // First try direct parsing
+      return JSON.parse(text);
+    } catch (error) {
+      // Try to find JSON object in the text
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          return JSON.parse(jsonMatch[0]);
+        } catch (e) {
+          // If that fails, try to find and parse the last valid JSON object
+          const matches = text.match(/\{[^{}]*\}/g);
+          if (matches && matches.length > 0) {
+            for (let i = matches.length - 1; i >= 0; i--) {
+              try {
+                const match = matches[i];
+                if (match) {
+                  return JSON.parse(match);
                 }
-              },
-              required: ['intent_type', 'reasoning']
+              } catch (e) {
+                continue;
+              }
             }
           }
         }
-      ];
-
-      const classificationMessages: OpenAI.ChatCompletionMessageParam[] = [
-        {
-          role: 'system',
-          content: `You are an expert trading assistant that classifies user requests.
-
-Classify requests as:
-- "trade": Direct buy/sell orders (e.g., "buy 100 shares of AAPL")
-- "hedge": Hedging strategies or risk management (e.g., "how to hedge my LULU position for earnings")
-- "analysis": Market analysis or opinions (e.g., "what's the outlook for tech stocks?")
-- "recommendation": Trade recommendations based on scenarios (e.g., "what should I buy if inflation rises?")
-
-Be intelligent about classification - focus on the primary intent.`
-        },
-        {
-          role: 'user',
-          content: userInput
+      }
+      
+      // Try to find JSON array
+      const arrayMatch = text.match(/\[[\s\S]*\]/);
+      if (arrayMatch) {
+        try {
+          return JSON.parse(arrayMatch[0]);
+        } catch (e) {
+          // Continue to throw error below
         }
-      ];
+      }
+      
+      throw new Error(`Failed to extract JSON from response: ${text.substring(0, 200)}...`);
+    }
+  }
 
-      const classificationResponse = await this.openai.chat.completions.create({
-        model: 'gpt-4-0125-preview',
-        messages: classificationMessages,
-        tools,
-        tool_choice: { type: 'function', function: { name: 'classify_intent' } },
-        temperature: 0.1
+  /**
+   * Parse complex natural language trading requests with caching
+   */
+  async parseAdvancedIntent(userInput: string, accountInfo?: AccountInfo): Promise<AdvancedTradeIntent> {
+    // Check cache first
+    const cacheKey = `${userInput}-${accountInfo?.accountId || 'no-account'}`;
+    const cached = this.intentCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      return cached.intent;
+    }
+
+    try {
+      // First, do a quick keyword check to avoid API calls for simple trades
+      const lowerInput = userInput.toLowerCase();
+      const isSimpleTrade = (lowerInput.includes('buy') || lowerInput.includes('sell')) &&
+                           !lowerInput.includes('hedge') &&
+                           !lowerInput.includes('analyze') &&
+                           !lowerInput.includes('recommend') &&
+                           !lowerInput.includes('should i');
+
+      if (isSimpleTrade) {
+        const tradeIntent = await this.basicService.parseTradeIntent(userInput);
+        const result = { ...tradeIntent, type: 'trade' as const };
+        this.intentCache.set(cacheKey, { intent: result, timestamp: Date.now() });
+        return result;
+      }
+
+      // For complex queries, use classification
+      const classificationPrompt = `Classify the following trading request into one of these categories:
+- "trade": Simple buy/sell orders
+- "hedge": Risk management and hedging strategies
+- "analysis": Market analysis requests
+- "recommendation": Trading advice and recommendations
+
+User request: "${userInput}"
+
+Respond with just the category name (trade, hedge, analysis, or recommendation).`;
+
+      const classificationResponse = await this.anthropic.messages.create({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 20,
+        temperature: 0,
+        messages: [
+          {
+            role: 'user',
+            content: classificationPrompt
+          }
+        ]
       });
 
-      const classification = JSON.parse(
-        classificationResponse.choices[0]?.message?.tool_calls?.[0]?.function?.arguments || '{}'
-      );
+      if (!classificationResponse.content || classificationResponse.content.length === 0) {
+        throw new LLMError('Empty classification response from Claude');
+      }
+
+      const content = classificationResponse.content[0];
+      if (!content || content.type !== 'text') {
+        throw new LLMError('Unexpected classification response type from Claude');
+      }
+
+      const classification = (content as { type: 'text'; text: string }).text.trim().toLowerCase();
 
       // Route to appropriate parser based on classification
-      switch (classification.intent_type) {
+      let result: AdvancedTradeIntent;
+      
+      switch (classification) {
         case 'trade':
           const tradeIntent = await this.basicService.parseTradeIntent(userInput);
-          return { ...tradeIntent, type: 'trade' };
+          result = { ...tradeIntent, type: 'trade' };
+          break;
         
         case 'hedge':
-          return await this.parseHedgeIntent(userInput, accountInfo);
+          result = await this.parseHedgeIntent(userInput, accountInfo);
+          break;
         
         case 'analysis':
-          return await this.parseAnalysisIntent(userInput);
+          result = await this.parseAnalysisIntent(userInput);
+          break;
         
         case 'recommendation':
-          return await this.parseRecommendationIntent(userInput);
+          result = await this.parseRecommendationIntent(userInput);
+          break;
         
         default:
           throw new LLMError('Unable to classify trading intent');
       }
+
+      // Cache the result
+      this.intentCache.set(cacheKey, { intent: result, timestamp: Date.now() });
+      return result;
+      
     } catch (error) {
       throw new LLMError('Failed to parse advanced trading intent', {
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -115,424 +174,393 @@ Be intelligent about classification - focus on the primary intent.`
    * Parse hedging intent from natural language
    */
   private async parseHedgeIntent(userInput: string, accountInfo?: AccountInfo): Promise<HedgeIntent> {
-    const tools: OpenAI.ChatCompletionTool[] = [{
-      type: 'function',
-      function: {
-        name: 'parse_hedge_request',
-        description: 'Parse a hedging request',
-        parameters: {
-          type: 'object',
-          properties: {
-            primary_symbol: {
-              type: 'string',
-              description: 'The ticker symbol of the position to hedge'
-            },
-            hedge_reason: {
-              type: 'string',
-              description: 'The reason for hedging (e.g., earnings risk, market volatility, tariffs)'
-            },
-            timeframe: {
-              type: 'string',
-              description: 'The timeframe for the hedge (e.g., "1 week", "until earnings", "Q1")'
-            },
-            risk_tolerance: {
-              type: 'string',
-              enum: ['conservative', 'moderate', 'aggressive'],
-              description: 'Risk tolerance level for the hedge'
-            }
-          },
-          required: ['primary_symbol', 'hedge_reason']
-        }
-      }
-    }];
-
-    const messages: OpenAI.ChatCompletionMessageParam[] = [
-      {
-        role: 'system',
-        content: `You are an expert trading assistant parsing hedge requests.
-Extract the key information about what position needs hedging and why.
-Consider the user's current positions if provided.`
-      },
-      {
-        role: 'user',
-        content: userInput
-      }
-    ];
-
-    if (accountInfo?.positions && accountInfo.positions.length > 0) {
-      messages.push({
-        role: 'system',
-        content: `User's current positions: ${accountInfo.positions.map(p => 
+    const positionsContext = accountInfo?.positions && accountInfo.positions.length > 0
+      ? `\nUser's current positions: ${accountInfo.positions.map(p => 
           `${p.symbol}: ${p.quantity} shares`).join(', ')}`
-      });
-    }
+      : '';
 
-    const response = await this.openai.chat.completions.create({
-      model: 'gpt-4-0125-preview',
-      messages,
-      tools,
-      tool_choice: { type: 'function', function: { name: 'parse_hedge_request' } },
-      temperature: 0.1
+    const prompt = `Parse this hedging request and extract the key information.
+User request: "${userInput}"${positionsContext}
+
+Respond with a JSON object containing:
+{
+  "primary_symbol": "TICKER_SYMBOL",
+  "hedge_reason": "reason for hedging (e.g., earnings risk, market volatility, tariffs)",
+  "timeframe": "timeframe for the hedge (e.g., '1 week', 'until earnings', 'Q1')",
+  "risk_tolerance": "conservative" | "moderate" | "aggressive"
+}
+
+If timeframe or risk_tolerance aren't specified, use reasonable defaults.`;
+
+    const response = await this.anthropic.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 300,
+      temperature: 0.1,
+      messages: [
+        {
+          role: 'user',
+          content: prompt
+        }
+      ]
     });
 
-    const args = JSON.parse(
-      response.choices[0]?.message?.tool_calls?.[0]?.function?.arguments || '{}'
-    );
-
-    // Find position details if available
-    const position = accountInfo?.positions.find(p => 
-      p.symbol.toUpperCase() === args.primary_symbol.toUpperCase()
-    );
-
-    const primaryPosition: HedgeIntent['primaryPosition'] = {
-      symbol: args.primary_symbol.toUpperCase()
-    };
-    
-    if (position?.marketValue !== undefined) {
-      primaryPosition.currentValue = position.marketValue;
+    if (!response.content || response.content.length === 0) {
+      throw new LLMError('Empty hedge parsing response from Claude');
     }
-    if (position?.quantity !== undefined) {
-      primaryPosition.shares = position.quantity;
+
+    const content = response.content[0];
+    if (!content || content.type !== 'text') {
+      throw new LLMError('Unexpected hedge parsing response type from Claude');
     }
+
+    const textContent = content as { type: 'text'; text: string };
+    const parsed = this.extractJSON(textContent.text);
 
     return {
       type: 'hedge',
-      primaryPosition,
-      hedgeReason: args.hedge_reason,
-      timeframe: args.timeframe,
-      riskTolerance: args.risk_tolerance || 'moderate'
+      primarySymbol: parsed.primary_symbol,
+      hedgeReason: parsed.hedge_reason,
+      timeframe: parsed.timeframe || '1 month',
+      riskTolerance: parsed.risk_tolerance || 'moderate'
     };
   }
 
   /**
-   * Parse market analysis intent
+   * Parse market analysis intent from natural language
    */
   private async parseAnalysisIntent(userInput: string): Promise<MarketAnalysisIntent> {
-    const tools: OpenAI.ChatCompletionTool[] = [{
-      type: 'function',
-      function: {
-        name: 'parse_analysis_request',
-        description: 'Parse a market analysis request',
-        parameters: {
-          type: 'object',
-          properties: {
-            symbols: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Stock ticker symbols to analyze'
-            },
-            analysis_type: {
-              type: 'string',
-              enum: ['fundamental', 'technical', 'sentiment', 'risk'],
-              description: 'Type of analysis requested'
-            },
-            context: {
-              type: 'string',
-              description: 'Additional context for the analysis'
-            },
-            timeframe: {
-              type: 'string',
-              description: 'Timeframe for the analysis'
-            }
-          },
-          required: ['symbols', 'analysis_type']
-        }
-      }
-    }];
+    const prompt = `Parse this market analysis request and extract the key information.
+User request: "${userInput}"
 
-    const response = await this.openai.chat.completions.create({
-      model: 'gpt-4-0125-preview',
+Respond with a JSON object containing:
+{
+  "symbols": ["SYMBOL1", "SYMBOL2"],
+  "analysis_type": "technical" | "fundamental" | "sentiment" | "comprehensive",
+  "timeframe": "timeframe for analysis (e.g., '1 week', '1 month', '3 months')",
+  "focus_areas": ["area1", "area2"] // e.g., ["earnings", "competition", "sector trends"]
+}
+
+Extract all relevant stock symbols mentioned. If no specific timeframe is given, use "1 month".`;
+
+    const response = await this.anthropic.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 300,
+      temperature: 0.1,
       messages: [
         {
-          role: 'system',
-          content: 'Parse market analysis requests. Extract symbols and analysis type.'
-        },
-        {
           role: 'user',
-          content: userInput
+          content: prompt
         }
-      ],
-      tools,
-      tool_choice: { type: 'function', function: { name: 'parse_analysis_request' } },
-      temperature: 0.1
+      ]
     });
 
-    const args = JSON.parse(
-      response.choices[0]?.message?.tool_calls?.[0]?.function?.arguments || '{}'
-    );
+    if (!response.content || response.content.length === 0) {
+      throw new LLMError('Empty analysis parsing response from Claude');
+    }
+
+    const content = response.content[0];
+    if (!content || content.type !== 'text') {
+      throw new LLMError('Unexpected analysis parsing response type from Claude');
+    }
+
+    const textContent = content as { type: 'text'; text: string };
+    const parsed = this.extractJSON(textContent.text);
 
     return {
       type: 'analysis',
-      symbols: args.symbols.map((s: string) => s.toUpperCase()),
-      analysisType: args.analysis_type,
-      context: args.context,
-      timeframe: args.timeframe
+      symbols: parsed.symbols,
+      analysisType: parsed.analysis_type || 'comprehensive',
+      timeframe: parsed.timeframe || '1 month',
+      focusAreas: parsed.focus_areas || []
     };
   }
 
   /**
-   * Parse trade recommendation intent
+   * Parse trade recommendation intent from natural language
    */
   private async parseRecommendationIntent(userInput: string): Promise<TradeRecommendationIntent> {
-    const tools: OpenAI.ChatCompletionTool[] = [{
-      type: 'function',
-      function: {
-        name: 'parse_recommendation_request',
-        description: 'Parse a trade recommendation request',
-        parameters: {
-          type: 'object',
-          properties: {
-            scenario: {
-              type: 'string',
-              description: 'The market scenario or condition'
-            },
-            max_risk: {
-              type: 'number',
-              description: 'Maximum risk amount in dollars'
-            },
-            sectors: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Preferred sectors'
-            },
-            exclude_symbols: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Symbols to exclude'
-            }
-          },
-          required: ['scenario']
-        }
-      }
-    }];
+    const prompt = `Parse this trade recommendation request and extract the key information.
+User request: "${userInput}"
 
-    const response = await this.openai.chat.completions.create({
-      model: 'gpt-4-0125-preview',
+Respond with a JSON object containing:
+{
+  "scenario": "description of the scenario or question",
+  "symbols": ["SYMBOL1", "SYMBOL2"], // if specific symbols mentioned
+  "investment_amount": number, // if mentioned, otherwise null
+  "risk_tolerance": "conservative" | "moderate" | "aggressive",
+  "timeframe": "investment timeframe (e.g., 'short-term', 'long-term', '1 year')",
+  "strategy_type": "growth" | "value" | "income" | "momentum" | "general"
+}
+
+If specific details aren't mentioned, use reasonable defaults or null.`;
+
+    const response = await this.anthropic.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 300,
+      temperature: 0.1,
       messages: [
         {
-          role: 'system',
-          content: 'Parse trade recommendation requests. Extract the scenario and any constraints.'
-        },
-        {
           role: 'user',
-          content: userInput
+          content: prompt
         }
-      ],
-      tools,
-      tool_choice: { type: 'function', function: { name: 'parse_recommendation_request' } },
-      temperature: 0.1
+      ]
     });
 
-    const args = JSON.parse(
-      response.choices[0]?.message?.tool_calls?.[0]?.function?.arguments || '{}'
-    );
+    if (!response.content || response.content.length === 0) {
+      throw new LLMError('Empty recommendation parsing response from Claude');
+    }
+
+    const content = response.content[0];
+    if (!content || content.type !== 'text') {
+      throw new LLMError('Unexpected recommendation parsing response type from Claude');
+    }
+
+    const textContent = content as { type: 'text'; text: string };
+    const parsed = this.extractJSON(textContent.text);
 
     return {
       type: 'recommendation',
-      scenario: args.scenario,
-      constraints: {
-        maxRisk: args.max_risk,
-        sectors: args.sectors,
-        excludeSymbols: args.exclude_symbols?.map((s: string) => s.toUpperCase())
-      }
+      scenario: parsed.scenario,
+      symbols: parsed.symbols || [],
+      investmentAmount: parsed.investment_amount,
+      riskTolerance: parsed.risk_tolerance || 'moderate',
+      timeframe: parsed.timeframe || 'medium-term',
+      strategyType: parsed.strategy_type || 'general'
     };
   }
 
   /**
-   * Generate hedge recommendations based on position and market conditions
+   * Generate hedge recommendations using Claude
    */
   async generateHedgeRecommendation(
     hedgeIntent: HedgeIntent, 
     marketData: any
   ): Promise<HedgeRecommendation> {
-    const messages: OpenAI.ChatCompletionMessageParam[] = [
-      {
-        role: 'system',
-        content: `You are an expert hedge fund manager providing hedging strategies.
-        
-Consider:
-1. The specific risk being hedged (earnings, tariffs, market volatility)
-2. Cost-effective hedging instruments (options, inverse ETFs, correlated assets)
-3. The user's risk tolerance
-4. Current market conditions
-5. Time horizon
+    const prompt = `You are an expert financial advisor specializing in risk management and hedging strategies.
 
-Provide practical, actionable hedging strategies. Return your response as a JSON object with the following structure:
+Generate a comprehensive hedging recommendation for:
+- Primary Position: ${hedgeIntent.primarySymbol}
+- Hedge Reason: ${hedgeIntent.hedgeReason}
+- Timeframe: ${hedgeIntent.timeframe}
+- Risk Tolerance: ${hedgeIntent.riskTolerance}
+
+Current market context: ${JSON.stringify(marketData, null, 2)}
+
+Provide a detailed hedge recommendation including:
+1. Recommended hedging strategy
+2. Specific instruments to use (options, ETFs, etc.)
+3. Position sizing
+4. Expected costs
+5. Risk reduction percentage
+6. Exit conditions
+
+Respond with a JSON object:
 {
-  "strategy": "Brief description of the recommended strategy",
+  "strategy": "detailed strategy description",
   "instruments": [
     {
-      "symbol": "TICKER",
-      "action": "buy|sell",
-      "quantity": 100,
-      "rationale": "Why this instrument helps hedge the risk"
+      "type": "option" | "etf" | "future" | "stock",
+      "symbol": "SYMBOL",
+      "action": "buy" | "sell",
+      "quantity": number,
+      "reasoning": "why this instrument"
     }
   ],
-  "estimatedCost": 1000,
-  "riskReduction": "High|Moderate|Low",
-  "explanation": "Detailed explanation of how this hedge works"
-}`
-      },
-      {
-        role: 'user',
-        content: `I need to hedge my position in ${hedgeIntent.primaryPosition.symbol}.
-Reason: ${hedgeIntent.hedgeReason}
-Timeframe: ${hedgeIntent.timeframe || 'Not specified'}
-Risk tolerance: ${hedgeIntent.riskTolerance}
-Current position value: $${hedgeIntent.primaryPosition.currentValue || 'Unknown'}
+  "cost_estimate": number,
+  "risk_reduction": number,
+  "exit_conditions": ["condition1", "condition2"],
+  "timeline": "expected timeline for the hedge"
+}`;
 
-Please provide a JSON response with hedging recommendations.`
-      }
-    ];
-
-    const response = await this.openai.chat.completions.create({
-      model: 'gpt-4-0125-preview',
-      messages,
-      temperature: 0.3,
-      response_format: { type: "json_object" },
-      max_tokens: 1000
+    const response = await this.anthropic.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 1000,
+      temperature: 0.2,
+      messages: [
+        {
+          role: 'user',
+          content: prompt
+        }
+      ]
     });
 
-    const recommendation = JSON.parse(response.choices[0]?.message?.content || '{}');
-    
+    if (!response.content || response.content.length === 0) {
+      throw new LLMError('Empty hedge recommendation response from Claude');
+    }
+
+    const content = response.content[0];
+    if (!content || content.type !== 'text') {
+      throw new LLMError('Unexpected hedge recommendation response type from Claude');
+    }
+
+    const textContent = content as { type: 'text'; text: string };
+    const parsed = this.extractJSON(textContent.text);
+
     return {
-      strategy: recommendation.strategy || 'Options collar strategy',
-      instruments: recommendation.instruments || [],
-      estimatedCost: recommendation.estimatedCost || 0,
-      riskReduction: recommendation.riskReduction || 'Moderate',
-      explanation: recommendation.explanation || 'Hedging strategy to reduce risk'
+      strategy: parsed.strategy,
+      instruments: parsed.instruments,
+      costEstimate: parsed.cost_estimate,
+      riskReduction: parsed.risk_reduction,
+      exitConditions: parsed.exit_conditions,
+      timeline: parsed.timeline
     };
   }
 
   /**
-   * Perform market analysis on requested symbols
+   * Perform market analysis using Claude
    */
   async performMarketAnalysis(
     analysisIntent: MarketAnalysisIntent,
     marketData: any
   ): Promise<MarketAnalysis[]> {
-    const analyses: MarketAnalysis[] = [];
+    const analysisPromises = analysisIntent.symbols.map(async (symbol) => {
+      const prompt = `You are an expert financial analyst. Perform a ${analysisIntent.analysisType} analysis for ${symbol}.
 
-    for (const symbol of analysisIntent.symbols) {
-      const messages: OpenAI.ChatCompletionMessageParam[] = [
-        {
-          role: 'system',
-          content: `You are a senior market analyst providing ${analysisIntent.analysisType} analysis.
-          
-Consider:
-1. Current market conditions and trends
-2. Company/sector specific factors
-3. Macroeconomic influences
-4. Risk factors and opportunities
-5. Recent news and events
+Analysis parameters:
+- Symbol: ${symbol}
+- Analysis Type: ${analysisIntent.analysisType}
+- Timeframe: ${analysisIntent.timeframe}
+- Focus Areas: ${analysisIntent.focusAreas.join(', ')}
 
-Provide balanced, professional analysis. Return your response as a JSON object with this structure:
+Market data: ${JSON.stringify(marketData[symbol] || {}, null, 2)}
+
+Provide a comprehensive analysis including:
+1. Current market sentiment
+2. Key risk factors
+3. Growth opportunities
+4. Price targets and recommendations
+
+Respond with a JSON object:
 {
-  "sentiment": "bullish|bearish|neutral",
-  "riskFactors": ["Risk factor 1", "Risk factor 2"],
-  "opportunities": ["Opportunity 1", "Opportunity 2"],
-  "recommendation": "Detailed recommendation text",
-  "relatedNews": [
-    {
-      "title": "News headline",
-      "summary": "Brief summary",
-      "impact": "positive|negative|neutral"
-    }
-  ]
-}`
-        },
-        {
-          role: 'user',
-          content: `Perform ${analysisIntent.analysisType} analysis on ${symbol}.
-Context: ${analysisIntent.context || 'General market conditions'}
-Timeframe: ${analysisIntent.timeframe || 'Short to medium term'}
+  "symbol": "${symbol}",
+  "sentiment": "bullish" | "bearish" | "neutral",
+  "confidence": number, // 0-100
+  "risk_factors": ["risk1", "risk2"],
+  "opportunities": ["opportunity1", "opportunity2"],
+  "price_target": number,
+  "recommendation": "buy" | "sell" | "hold",
+  "reasoning": "detailed reasoning for the recommendation"
+}`;
 
-Please provide a JSON response with your analysis.`
-        }
-      ];
-
-      const response = await this.openai.chat.completions.create({
-        model: 'gpt-4-0125-preview',
-        messages,
-        temperature: 0.3,
-        response_format: { type: "json_object" },
-        max_tokens: 800
+      const response = await this.anthropic.messages.create({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 800,
+        temperature: 0.2,
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ]
       });
 
-      const analysis = JSON.parse(response.choices[0]?.message?.content || '{}');
-      
-      analyses.push({
-        symbol,
-        currentPrice: marketData[symbol]?.currentPrice || 0,
-        analysis: {
-          sentiment: analysis.sentiment || 'neutral',
-          riskFactors: analysis.riskFactors || [],
-          opportunities: analysis.opportunities || [],
-          recommendation: analysis.recommendation || 'Hold'
-        },
-        relatedNews: analysis.relatedNews
-      });
-    }
+      if (!response.content || response.content.length === 0) {
+        throw new LLMError(`Empty market analysis response from Claude for ${symbol}`);
+      }
 
-    return analyses;
+      const content = response.content[0];
+      if (!content || content.type !== 'text') {
+        throw new LLMError(`Unexpected market analysis response type from Claude for ${symbol}`);
+      }
+
+      const textContent = content as { type: 'text'; text: string };
+      const parsed = this.extractJSON(textContent.text);
+
+      return {
+        symbol: parsed.symbol,
+        sentiment: parsed.sentiment,
+        confidence: parsed.confidence,
+        riskFactors: parsed.risk_factors,
+        opportunities: parsed.opportunities,
+        priceTarget: parsed.price_target,
+        recommendation: parsed.recommendation,
+        reasoning: parsed.reasoning
+      };
+    });
+
+    return Promise.all(analysisPromises);
   }
 
   /**
-   * Generate trade recommendations based on scenarios
+   * Generate trade recommendations using Claude
    */
   async generateTradeRecommendations(
     intent: TradeRecommendationIntent,
     accountInfo: AccountInfo
   ): Promise<any> {
-    const messages: OpenAI.ChatCompletionMessageParam[] = [
-      {
-        role: 'system',
-        content: `You are a professional investment advisor providing trade recommendations.
-        
-Consider:
-1. The specific scenario or market condition
-2. Risk management and position sizing
-3. Diversification across sectors
-4. Entry and exit strategies
-5. Current portfolio composition
+    const accountContext = `
+Account Information:
+- Buying Power: $${accountInfo.buyingPower?.toFixed(2) || 'unknown'}
+- Day Trading Power: $${accountInfo.dayTradingBuyingPower?.toFixed(2) || 'unknown'}
+- Current Positions: ${accountInfo.positions?.map(p => `${p.symbol}: ${p.quantity} shares`).join(', ') || 'None'}`;
 
-Provide specific, actionable recommendations with clear rationale. Return your response as a JSON object with this structure:
+    const prompt = `You are an expert financial advisor providing personalized trading recommendations.
+
+Request Details:
+- Scenario: ${intent.scenario}
+- Symbols of Interest: ${intent.symbols.join(', ') || 'None specified'}
+- Investment Amount: ${intent.investmentAmount ? `$${intent.investmentAmount}` : 'Not specified'}
+- Risk Tolerance: ${intent.riskTolerance}
+- Timeframe: ${intent.timeframe}
+- Strategy Type: ${intent.strategyType}
+
+${accountContext}
+
+Provide comprehensive trading recommendations including:
+1. Specific trade suggestions
+2. Position sizing recommendations
+3. Risk management strategies
+4. Market timing considerations
+
+Respond with a JSON object:
 {
   "recommendations": [
     {
-      "symbol": "TICKER",
-      "action": "buy|sell",
-      "allocation": "Dollar amount or percentage",
-      "rationale": "Why this trade makes sense",
-      "targetPrice": 100.50,
-      "stopLoss": 95.00
+      "symbol": "SYMBOL",
+      "action": "buy" | "sell",
+      "quantity": number,
+      "reasoning": "detailed reasoning",
+      "risk_level": "low" | "medium" | "high",
+      "expected_return": number,
+      "stop_loss": number,
+      "take_profit": number
     }
   ],
-  "strategy": "Overall strategy explanation",
-  "risks": ["Risk 1", "Risk 2"]
-}`
-      },
-      {
-        role: 'user',
-        content: `Scenario: ${intent.scenario}
-Available capital: $${accountInfo.buyingPower}
-Current portfolio value: $${accountInfo.portfolioValue}
-${intent.constraints?.maxRisk ? `Max risk: $${intent.constraints.maxRisk}` : ''}
-${intent.constraints?.sectors ? `Preferred sectors: ${intent.constraints.sectors.join(', ')}` : ''}
-${intent.constraints?.excludeSymbols ? `Exclude: ${intent.constraints.excludeSymbols.join(', ')}` : ''}
+  "portfolio_allocation": {
+    "cash_percentage": number,
+    "equity_percentage": number,
+    "sector_diversification": ["sector1", "sector2"]
+  },
+  "risk_management": {
+    "max_position_size": number,
+    "diversification_notes": "notes on diversification",
+    "exit_strategy": "exit strategy details"
+  },
+  "market_outlook": "overall market outlook and timing"
+}`;
 
-Please provide a JSON response with trade recommendations.`
-      }
-    ];
-
-    const response = await this.openai.chat.completions.create({
-      model: 'gpt-4-0125-preview',
-      messages,
-      temperature: 0.3,
-      response_format: { type: "json_object" },
-      max_tokens: 1000
+    const response = await this.anthropic.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 1200,
+      temperature: 0.2,
+      messages: [
+        {
+          role: 'user',
+          content: prompt
+        }
+      ]
     });
 
-    return JSON.parse(response.choices[0]?.message?.content || '{}');
+    if (!response.content || response.content.length === 0) {
+      throw new LLMError('Empty trade recommendations response from Claude');
+    }
+
+    const content = response.content[0];
+    if (!content || content.type !== 'text') {
+      throw new LLMError('Unexpected trade recommendations response type from Claude');
+    }
+
+    const textContent = content as { type: 'text'; text: string };
+    return this.extractJSON(textContent.text);
   }
 } 
