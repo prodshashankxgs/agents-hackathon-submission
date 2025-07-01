@@ -366,12 +366,12 @@ export function TradingInterface() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 lg:space-y-6">
       {/* Main Input Card */}
-      <div className="bg-white rounded-xl p-8 border border-gray-200 shadow-sm">
-        <div className="mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-2 flex items-center">
-            <SparklesIcon className="w-5 h-5 mr-3 text-gray-400" />
+      <div className="bg-white rounded-xl p-4 lg:p-8 border border-gray-200 shadow-sm">
+        <div className="mb-4 lg:mb-6">
+          <h2 className="text-lg lg:text-xl font-semibold text-gray-900 mb-2 flex items-center">
+            <SparklesIcon className="w-4 lg:w-5 h-4 lg:h-5 mr-2 lg:mr-3 text-gray-400" />
             <span>Natural Language Trading</span>
           </h2>
           <p className="text-gray-600 text-sm">
@@ -379,7 +379,7 @@ export function TradingInterface() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-4 lg:space-y-6">
           <div className="relative">
             <Input
               ref={inputRef}
@@ -387,7 +387,7 @@ export function TradingInterface() {
               onChange={(e) => setCommand(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder='e.g., "Buy $1000 of AAPL" or "How to hedge my LULU position for earnings?"'
-              className="w-full px-6 py-4 border border-gray-200 rounded-xl bg-white focus:border-gray-900 focus:ring-1 focus:ring-gray-900 focus:outline-none transition-all duration-200 placeholder:text-gray-500 text-base pr-14"
+              className="w-full px-4 lg:px-6 py-3 lg:py-4 border border-gray-200 rounded-xl bg-white focus:border-gray-900 focus:ring-1 focus:ring-gray-900 focus:outline-none transition-all duration-200 placeholder:text-gray-500 text-sm lg:text-base pr-12 lg:pr-14"
               disabled={isLoading}
             />
             
@@ -405,7 +405,7 @@ export function TradingInterface() {
             {!isLoading && command.trim() && (
               <button
                 type="submit"
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110"
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110"
               >
                 <ArrowRightIcon className="w-4 h-4 text-white" />
               </button>
@@ -415,23 +415,23 @@ export function TradingInterface() {
           {/* Processing Container */}
           {showProcessingContainer && (
             <div className="processing-container result-container-enter">
-              <div className="flex items-start space-x-4">
+              <div className="flex items-start space-x-3 lg:space-x-4">
                 <div className="flex-shrink-0 mt-1">
-                  {requestType === 'trade' && <RocketIcon className="w-6 h-6 text-gray-600" />}
-                  {requestType === 'hedge' && <ShieldCheckIcon className="w-6 h-6 text-blue-600" />}
-                  {requestType === 'analysis' && <BrainCircuitIcon className="w-6 h-6 text-purple-600" />}
-                  {requestType === 'recommendation' && <LightbulbIcon className="w-6 h-6 text-amber-600" />}
+                  {requestType === 'trade' && <RocketIcon className="w-5 lg:w-6 h-5 lg:h-6 text-gray-600" />}
+                  {requestType === 'hedge' && <ShieldCheckIcon className="w-5 lg:w-6 h-5 lg:h-6 text-blue-600" />}
+                  {requestType === 'analysis' && <BrainCircuitIcon className="w-5 lg:w-6 h-5 lg:h-6 text-purple-600" />}
+                  {requestType === 'recommendation' && <LightbulbIcon className="w-5 lg:w-6 h-5 lg:h-6 text-amber-600" />}
                 </div>
                 
-                <div className="flex-1 space-y-4">
+                <div className="flex-1 space-y-3 lg:space-y-4">
                   <div>
-                    <h3 className="font-semibold text-gray-900 mb-1">
+                    <h3 className="text-sm lg:text-base font-semibold text-gray-900 mb-1">
                       {requestType === 'trade' && 'Processing Trade Request'}
                       {requestType === 'hedge' && 'Analyzing Hedge Strategy'}
                       {requestType === 'analysis' && 'Performing Market Analysis'}
                       {requestType === 'recommendation' && 'Generating Recommendations'}
                     </h3>
-                    <p className="text-sm text-gray-600">"{command}"</p>
+                    <p className="text-xs lg:text-sm text-gray-600 break-words">"{command}"</p>
                   </div>
                   
                   <ProcessingSteps steps={processingSteps} currentStep={currentStep} />
@@ -521,22 +521,22 @@ export function TradingInterface() {
 
                   {/* Confirmation UI */}
                   {showConfirmation && parsedCommand.isValid && (
-                    <div className="mt-4 pt-4 border-t border-green-200 confirmation-slide-in">
-                      <div className="flex items-center justify-between mb-4">
+                    <div className="mt-3 lg:mt-4 pt-3 lg:pt-4 border-t border-green-200 confirmation-slide-in">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3 lg:mb-4 space-y-2 sm:space-y-0">
                         <p className="text-sm font-medium text-gray-900">
                           Are you sure you want to execute this trade?
                         </p>
-                        <div className="flex items-center gap-1 text-xs text-gray-500">
+                        <div className="flex items-center gap-1 text-xs text-gray-500 hidden sm:flex">
                           <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-700 font-mono">Y</kbd>
                           <span>/</span>
                           <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-700 font-mono">N</kbd>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 lg:gap-3">
                         <button
                           onClick={handleConfirmTrade}
                           disabled={isLoading}
-                          className="group relative inline-flex items-center justify-center px-6 py-2.5 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:scale-105 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                          className="group relative inline-flex items-center justify-center px-4 lg:px-6 py-2.5 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:scale-105 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 text-sm lg:text-base"
                         >
                           <div className="absolute inset-0 bg-green-400 rounded-lg opacity-0 group-hover:opacity-20 transition-opacity duration-200"></div>
                           {isLoading ? (
@@ -550,7 +550,7 @@ export function TradingInterface() {
                         <button
                           onClick={handleCancelTrade}
                           disabled={isLoading}
-                          className="group relative inline-flex items-center justify-center px-6 py-2.5 bg-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:scale-105 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                          className="group relative inline-flex items-center justify-center px-4 lg:px-6 py-2.5 bg-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:scale-105 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 text-sm lg:text-base"
                         >
                           <div className="absolute inset-0 bg-gray-400 rounded-lg opacity-0 group-hover:opacity-10 transition-opacity duration-200"></div>
                           <XIcon className="w-4 h-4 mr-2" />
@@ -639,7 +639,7 @@ export function TradingInterface() {
                         </span>
                       </div>
                       
-                      <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:gap-4 text-sm">
                         <div>
                           <span className="text-purple-700">Confidence:</span>
                           <span className="font-medium ml-1">{analysis.confidence}%</span>

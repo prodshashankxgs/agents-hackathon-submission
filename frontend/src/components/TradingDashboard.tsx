@@ -62,8 +62,18 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
 
   return (
     <div className="flex h-screen bg-gray-50">
+      {/* Mobile Navigation Overlay */}
+      {selectedTab !== 'trade' && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          onClick={() => setSelectedTab('trade')}
+        />
+      )}
+      
       {/* Left Sidebar */}
-      <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
+      <div className={`w-64 bg-white border-r border-gray-200 flex flex-col transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 ${
+        selectedTab === 'trade' ? '-translate-x-full' : 'translate-x-0'
+      } fixed inset-y-0 left-0 z-50 lg:z-0`}>
         {/* Header */}
         <div className="p-6 border-b border-gray-100">
           <h1 className="text-xl font-semibold text-gray-900">
@@ -130,16 +140,28 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
         </div>
       </div>
 
-      {/* Main Content Area */}
+      {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Mobile Header */}
+        <div className="lg:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+          <h1 className="text-lg font-semibold text-gray-900">Trading Platform</h1>
+          <button
+            onClick={() => setSelectedTab(selectedTab === 'trade' ? 'portfolio' : 'trade')}
+            className="p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+        </div>
         {/* Top Header */}
-        <header className="bg-white border-b border-gray-200 px-8 py-6">
-          <div className="flex items-center justify-between">
+        <header className="bg-white border-b border-gray-200 px-4 lg:px-8 py-4 lg:py-6">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
             <div>
-              <h2 className="text-2xl font-semibold text-gray-900 capitalize">
+              <h2 className="text-xl lg:text-2xl font-semibold text-gray-900 capitalize">
                 {selectedTab}
               </h2>
-              <p className="text-sm text-gray-600 mt-1">
+              <p className="text-sm text-gray-600 mt-1 hidden sm:block">
                 {selectedTab === 'trade' && 'Execute trades using natural language'}
                 {selectedTab === 'portfolio' && 'View your portfolio performance'}
                 {selectedTab === 'performance' && 'Track portfolio performance vs benchmarks'}
@@ -150,22 +172,22 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
             
             {/* Quick Stats */}
             {accountInfo && !accountLoading && (
-              <div className="flex items-center space-x-8">
-                <div className="text-center">
+              <div className="flex items-center space-x-4 lg:space-x-8 overflow-x-auto">
+                <div className="text-center flex-shrink-0">
                   <p className="text-xs text-gray-500 uppercase tracking-wide">Portfolio Value</p>
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-base lg:text-lg font-semibold text-gray-900">
                     {formatCurrency(accountInfo.portfolioValue)}
                   </p>
                 </div>
-                <div className="text-center">
+                <div className="text-center flex-shrink-0">
                   <p className="text-xs text-gray-500 uppercase tracking-wide">Today's P&L</p>
-                  <p className={`text-lg font-semibold ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  <p className={`text-base lg:text-lg font-semibold ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {formatCurrency(totalPnL)}
                   </p>
                 </div>
-                <div className="text-center">
+                <div className="text-center flex-shrink-0">
                   <p className="text-xs text-gray-500 uppercase tracking-wide">Buying Power</p>
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-base lg:text-lg font-semibold text-gray-900">
                     {formatCurrency(accountInfo.buyingPower)}
                   </p>
                 </div>
@@ -176,10 +198,10 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
 
         {/* Content Area */}
         <main className="flex-1 overflow-y-auto bg-gray-50">
-          <div className="max-w-6xl mx-auto p-8">
+          <div className="max-w-6xl mx-auto p-4 lg:p-8">
             {/* Account Stats Cards */}
             {accountInfo && !accountLoading && (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-6 lg:mb-8">
                 <div className="bg-white rounded-xl p-6 border border-gray-200 hover:shadow-sm transition-shadow duration-200">
                   <div className="flex items-center justify-between mb-4">
                     <TrendingUpIcon className="w-5 h-5 text-gray-400" />
