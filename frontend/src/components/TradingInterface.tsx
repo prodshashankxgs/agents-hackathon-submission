@@ -20,7 +20,7 @@ import {
   RocketIcon
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { apiService, type HedgeRecommendation, type MarketAnalysis } from '@/lib/api'
+import { apiService, type HedgeRecommendation, type MarketAnalysis, type ThirteenFPortfolio, type PortfolioBasket } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import { ProcessingSteps, type ProcessingStep } from './ProcessingSteps'
 
@@ -49,6 +49,14 @@ export function TradingInterface() {
   const [hedgeRecommendation, setHedgeRecommendation] = useState<HedgeRecommendation | null>(null)
   const [marketAnalysis, setMarketAnalysis] = useState<MarketAnalysis[] | null>(null)
   const [tradeRecommendations, setTradeRecommendations] = useState<any>(null)
+  const [thirteenFPortfolio, setThirteenFPortfolio] = useState<ThirteenFPortfolio | null>(null)
+  const [thirteenFInvestment, setThirteenFInvestment] = useState<{
+    basket: PortfolioBasket
+    allocation: any[]
+    tradeResults: any[]
+  } | null>(null)
+  const [showInvestmentInput, setShowInvestmentInput] = useState(false)
+  const [investmentAmount, setInvestmentAmount] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [loadingMessage, setLoadingMessage] = useState('')
   const [showConfirmation, setShowConfirmation] = useState(false)
@@ -71,13 +79,20 @@ export function TradingInterface() {
   const initializeProcessingSteps = (type: string) => {
     let steps: ProcessingStep[] = []
     
-    if (type === 'trade') {
-      steps = [
-        { id: 'parse', label: 'Understanding your request', status: 'pending' },
-        { id: 'validate', label: 'Validating trade parameters', status: 'pending' },
-        { id: 'confirm', label: 'Ready for confirmation', status: 'pending' }
-      ]
-    } else if (type === 'hedge') {
+          if (type === 'trade') {
+        steps = [
+          { id: 'parse', label: 'Understanding your request', status: 'pending' },
+          { id: 'validate', label: 'Validating trade parameters', status: 'pending' },
+          { id: 'confirm', label: 'Ready for confirmation', status: 'pending' }
+        ]
+      } else if (type === '13f') {
+        steps = [
+          { id: 'parse', label: 'Analyzing 13F request', status: 'pending' },
+          { id: 'fetch', label: 'Fetching institutional holdings', status: 'pending' },
+          { id: 'calculate', label: 'Calculating portfolio allocation', status: 'pending' },
+          { id: 'present', label: 'Preparing investment options', status: 'pending' }
+        ]
+      } else if (type === 'hedge') {
       steps = [
         { id: 'parse', label: 'Analyzing your hedging request', status: 'pending' },
         { id: 'portfolio', label: 'Reviewing portfolio positions', status: 'pending' },
@@ -203,6 +218,10 @@ export function TradingInterface() {
     setHedgeRecommendation(null)
     setMarketAnalysis(null)
     setTradeRecommendations(null)
+    setThirteenFPortfolio(null)
+    setThirteenFInvestment(null)
+    setShowInvestmentInput(false)
+    setInvestmentAmount('')
     setShowConfirmation(false)
     resetProcessing()
     
@@ -275,6 +294,20 @@ export function TradingInterface() {
         await advanceToStep(3) // Finalizing recommendations
         setTradeRecommendations(recommendations)
         updateStepStatus(3, 'complete', 'Recommendations ready')
+        
+      } else if (type === '13f') {
+        await advanceToStep(0) // Analyzing request
+        
+        await advanceToStep(1) // Fetching holdings
+        const { portfolio } = await apiService.get13FPortfolio(intent as any)
+        
+        await advanceToStep(2) // Calculating allocation
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
+        await advanceToStep(3) // Preparing options
+        setThirteenFPortfolio(portfolio)
+        updateStepStatus(3, 'complete', '13F portfolio ready')
+        setShowInvestmentInput(true)
       }
       
       setIsLoading(false)
@@ -365,6 +398,41 @@ export function TradingInterface() {
     }
   }
 
+  const handleInvestmentSubmit = async () => {
+    if (!thirteenFPortfolio || !investmentAmount) return
+    
+    const amount = parseFloat(investmentAmount)
+    if (isNaN(amount) || amount <= 0) {
+      alert('Please enter a valid investment amount')
+      return
+    }
+    
+    setIsLoading(true)
+    setLoadingMessage('Executing portfolio spread investment...')
+    
+    try {
+      const intent = {
+        type: '13f',
+        institution: thirteenFPortfolio.institution,
+        action: 'invest'
+      }
+      
+      const result = await apiService.invest13FPortfolio(intent, amount)
+      setThirteenFInvestment(result)
+      setShowInvestmentInput(false)
+      
+      // Refresh account data
+      queryClient.invalidateQueries({ queryKey: ['account'] })
+      
+    } catch (error) {
+      console.error('Investment execution failed:', error)
+      alert('Failed to execute investment. Please try again.')
+    } finally {
+      setIsLoading(false)
+      setLoadingMessage('')
+    }
+  }
+
   return (
     <div className="space-y-4 lg:space-y-6">
       {/* Main Input Card */}
@@ -375,7 +443,7 @@ export function TradingInterface() {
             <span>Natural Language Trading</span>
           </h2>
           <p className="text-gray-600 text-sm">
-            Type your trading commands, hedging questions, or market analysis requests in plain English.
+            Type your trading commands, 13F queries, hedging questions, or market analysis requests in plain English.
           </p>
         </div>
 
@@ -386,7 +454,7 @@ export function TradingInterface() {
               value={command}
               onChange={(e) => setCommand(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder='e.g., "Buy $1000 of AAPL" or "How to hedge my LULU position for earnings?"'
+              placeholder='e.g., "Buy $1000 of AAPL", "What is Bridgewater&apos;s 13F?", or "How to hedge my LULU position?"'
               className="w-full px-4 lg:px-6 py-3 lg:py-4 border border-gray-200 rounded-xl bg-white focus:border-gray-900 focus:ring-1 focus:ring-gray-900 focus:outline-none transition-all duration-200 placeholder:text-gray-500 text-sm lg:text-base pr-12 lg:pr-14"
               disabled={isLoading}
             />
@@ -686,6 +754,127 @@ export function TradingInterface() {
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 13F Portfolio Display - Integrated */}
+          {thirteenFPortfolio && showProcessingContainer && (
+            <div className="mt-4 p-4 rounded-xl border bg-indigo-50 border-indigo-200 slide-up-fade-in">
+              <div className="flex items-start space-x-3">
+                <BarChart3Icon className="w-5 h-5 text-indigo-600 mt-0.5" />
+                <div className="flex-1 space-y-4">
+                  <div>
+                    <h3 className="font-medium text-indigo-900">{thirteenFPortfolio.institution} 13F Holdings</h3>
+                    <p className="text-sm text-indigo-800 mt-1">
+                      Filing Date: {new Date(thirteenFPortfolio.filingDate).toLocaleDateString()} | 
+                      Quarter End: {new Date(thirteenFPortfolio.quarterEndDate).toLocaleDateString()}
+                    </p>
+                    <p className="text-sm text-indigo-800">
+                      Total Portfolio Value: {formatCurrency(thirteenFPortfolio.totalValue)}
+                    </p>
+                  </div>
+                  
+                  <div className="bg-white/60 p-4 rounded-lg">
+                    <h4 className="text-sm font-medium text-indigo-900 mb-3">Top Holdings (&gt;0.5%)</h4>
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {thirteenFPortfolio.holdings
+                        .filter(h => h.percentOfPortfolio >= 0.5)
+                        .slice(0, 15)
+                        .map((holding, idx) => (
+                          <div key={holding.symbol} className="flex items-center justify-between p-2 bg-white/80 rounded text-sm">
+                            <div className="flex items-center space-x-3">
+                              <span className="w-6 text-xs text-gray-500">#{idx + 1}</span>
+                              <div>
+                                <span className="font-medium text-indigo-900">{holding.symbol}</span>
+                                <p className="text-xs text-indigo-700">{holding.companyName}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-medium text-indigo-900">{holding.percentOfPortfolio.toFixed(1)}%</p>
+                              <p className="text-xs text-indigo-700">{formatCurrency(holding.marketValue)}</p>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                  
+                  {showInvestmentInput && (
+                    <div className="bg-white/60 p-4 rounded-lg space-y-3">
+                      <h4 className="text-sm font-medium text-indigo-900">
+                        Would you like to invest in a weighted spread of this portfolio?
+                      </h4>
+                      <div className="flex items-center space-x-3">
+                        <Input
+                          type="number"
+                          placeholder="Investment amount (e.g., 10000)"
+                          value={investmentAmount}
+                          onChange={(e) => setInvestmentAmount(e.target.value)}
+                          className="flex-1"
+                          disabled={isLoading}
+                        />
+                        <button
+                          onClick={handleInvestmentSubmit}
+                          disabled={isLoading || !investmentAmount}
+                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                        >
+                          {isLoading ? 'Investing...' : 'Invest'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-indigo-700">
+                        This will create a weighted portfolio spread based on the institutional holdings.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 13F Investment Results Display */}
+          {thirteenFInvestment && showProcessingContainer && (
+            <div className="mt-4 p-4 rounded-xl border bg-green-50 border-green-200 slide-up-fade-in">
+              <div className="flex items-start space-x-3">
+                <CheckCircleIcon className="w-5 h-5 text-green-600 mt-0.5" />
+                <div className="flex-1 space-y-3">
+                  <div>
+                    <h3 className="font-medium text-green-900">Portfolio Spread Investment Executed</h3>
+                    <p className="text-sm text-green-800">
+                      Basket: {thirteenFInvestment.basket.name}
+                    </p>
+                    <p className="text-sm text-green-800">
+                      Total Investment: {formatCurrency(thirteenFInvestment.basket.totalInvestment)}
+                    </p>
+                  </div>
+                  
+                  <div className="bg-white/60 p-3 rounded-lg">
+                    <h4 className="text-sm font-medium text-green-900 mb-2">Trade Results:</h4>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {thirteenFInvestment.tradeResults.map((result, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-xs">
+                          <div>
+                            <span className="font-medium">{result.symbol}</span>
+                            {result.targetValue && (
+                              <span className="text-gray-600 ml-2">
+                                ${result.targetValue.toFixed(2)}
+                              </span>
+                            )}
+                          </div>
+                          <span className={result.success ? 'text-green-700' : 'text-red-700'}>
+                            {result.success ? '✓ Executed' : '✗ Failed'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <div className="bg-white/60 p-3 rounded-lg">
+                    <p className="text-sm text-green-800">
+                      Your {thirteenFInvestment.basket.institution} portfolio spread has been created and is now 
+                      available in your portfolio dashboard.
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>

@@ -141,17 +141,17 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
     }
   }
 
-  // Color palette for positions
+  // Color palette for positions (excluding green, which is reserved for cash)
   function getPositionColor(index: number): string {
     const colors = [
       '#3B82F6', // Blue
       '#EF4444', // Red
-      '#10B981', // Green
       '#F59E0B', // Amber
       '#8B5CF6', // Purple
       '#06B6D4', // Cyan
       '#F97316', // Orange
-      '#84CC16', // Lime
+      '#EC4899', // Pink
+      '#6366F1', // Indigo
     ]
     return colors[index % colors.length]
   }

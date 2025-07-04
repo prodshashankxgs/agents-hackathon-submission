@@ -15,6 +15,7 @@ import { TradingInterface } from './TradingInterface'
 import { PortfolioOverview } from './PortfolioOverview'
 import { MarketStatus } from './MarketStatus'
 import { PositionsList } from './PositionsList'
+import { PortfolioBaskets } from './PortfolioBaskets'
 
 // Lazy load the PortfolioPerformance component since it includes heavy charting libraries
 const PortfolioPerformance = lazy(() => import('./PortfolioPerformance').then(module => ({ default: module.PortfolioPerformance })))
@@ -24,7 +25,7 @@ interface TradingDashboardProps {
 }
 
 export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
-  const [selectedTab, setSelectedTab] = useState<'trade' | 'portfolio' | 'performance' | 'positions' | 'market'>('trade')
+  const [selectedTab, setSelectedTab] = useState<'trade' | 'portfolio' | 'performance' | 'positions' | 'baskets' | 'market'>('trade')
 
   // Fetch account information
   const { data: accountInfo, isLoading: accountLoading, error: accountError } = useQuery({
@@ -57,6 +58,7 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
     { id: 'portfolio', label: 'Portfolio', icon: PieChartIcon },
     { id: 'performance', label: 'Performance', icon: LineChartIcon },
     { id: 'positions', label: 'Positions', icon: BarChart3Icon },
+    { id: 'baskets', label: 'Baskets', icon: CreditCardIcon },
     { id: 'market', label: 'Market', icon: ActivityIcon },
   ] as const
 
@@ -166,6 +168,7 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
                 {selectedTab === 'portfolio' && 'View your portfolio performance'}
                 {selectedTab === 'performance' && 'Track portfolio performance vs benchmarks'}
                 {selectedTab === 'positions' && 'Manage your current positions'}
+                {selectedTab === 'baskets' && 'View institutional portfolio spreads'}
                 {selectedTab === 'market' && 'Monitor market conditions'}
               </p>
             </div>
@@ -310,6 +313,11 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
               {selectedTab === 'positions' && (
                 <div>
                   <PositionsList positions={accountInfo?.positions || []} />
+                </div>
+              )}
+              {selectedTab === 'baskets' && (
+                <div>
+                  <PortfolioBaskets />
                 </div>
               )}
               {selectedTab === 'market' && (

@@ -43,4 +43,7 @@ pids/
 coverage/
 
 # TypeScript cache
-*.tsbuildinfo 
+*.tsbuildinfo
+
+# Data storage
+data/ 

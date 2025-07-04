@@ -159,11 +159,19 @@ export interface TradeRecommendationIntent {
   strategyType: 'growth' | 'value' | 'income' | 'momentum' | 'general';
 }
 
+export interface ThirteenFIntent {
+  type: '13f';
+  institution: string;
+  action: 'query' | 'invest';
+  investmentAmount?: number;
+}
+
 export type AdvancedTradeIntent = 
   | (TradeIntent & { type: 'trade' })
   | HedgeIntent 
   | MarketAnalysisIntent 
-  | TradeRecommendationIntent;
+  | TradeRecommendationIntent
+  | ThirteenFIntent;
 
 export interface HedgeRecommendation {
   strategy: string;

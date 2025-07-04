@@ -6,6 +6,7 @@ import { ClaudeService } from './llm/claude-service';
 import { AdvancedTradingService } from './llm/advanced-trading-service';
 import { AlpacaAdapter } from './brokers/alpaca-adapter';
 import { ValidationService } from './trading/validation-service';
+import { ThirteenFService } from './services/thirteenth-f-service';
 import { TradeIntent, CLIOptions, TradingError } from './types';
 
 const app = express();
@@ -20,6 +21,7 @@ const claudeService = new ClaudeService();
 const advancedTrading = new AdvancedTradingService();
 const broker = new AlpacaAdapter();
 const validator = new ValidationService(broker);
+const thirteenFService = new ThirteenFService();
 
 // Development mode warnings
 if (config.nodeEnv === 'development') {
@@ -336,6 +338,166 @@ app.post('/api/advanced/recommend', async (req, res) => {
   } catch (error) {
     console.error('Trade recommendation error:', error);
     return res.status(500).json({ error: 'Failed to generate trade recommendations' });
+  }
+});
+
+// 13F endpoints
+app.post('/api/advanced/13f', async (req, res) => {
+  try {
+    const { intent } = req.body;
+    
+    if (!intent || intent.type !== '13f') {
+      return res.status(400).json({ error: 'Invalid 13F intent' });
+    }
+
+    const portfolio = await thirteenFService.getLatest13F(intent.institution);
+    
+    return res.json({ portfolio });
+  } catch (error) {
+    console.error('13F query error:', error);
+    return res.status(500).json({ error: 'Failed to get 13F data' });
+  }
+});
+
+app.post('/api/advanced/13f/invest', async (req, res) => {
+  try {
+    const { intent, investmentAmount } = req.body;
+    
+    if (!intent || intent.type !== '13f') {
+      return res.status(400).json({ error: 'Invalid 13F intent' });
+    }
+
+    if (!investmentAmount || investmentAmount <= 0) {
+      return res.status(400).json({ error: 'Valid investment amount required' });
+    }
+
+    // Get the 13F portfolio
+    const portfolio = await thirteenFService.getLatest13F(intent.institution);
+    
+    // Calculate allocation
+    const allocation = thirteenFService.calculateAllocation(portfolio, investmentAmount);
+    
+    // Create basket
+    const basket = thirteenFService.createBasket(intent.institution, investmentAmount, allocation);
+    
+    // Execute trades for each holding using notional (dollar) amounts - PARALLEL EXECUTION
+    console.log(`🚀 Executing ${allocation.length} trades in parallel for maximum speed...`);
+    
+    const tradePromises = allocation.map(async (item) => {
+      if (item.targetValue <= 0) {
+        return {
+          symbol: item.symbol,
+          success: false,
+          error: 'Target value is zero or negative',
+          targetValue: item.targetValue
+        };
+      }
+
+      try {
+        const tradeIntent = {
+          action: 'buy' as const,
+          symbol: item.symbol,
+          amountType: 'dollars' as const,
+          amount: item.targetValue,
+          orderType: 'market' as const
+        };
+        
+        console.log(`⚡ Executing notional order for ${item.symbol}: $${item.targetValue}`);
+        
+        const result = await broker.executeOrder(tradeIntent);
+        
+        // Update basket execution asynchronously - don't wait for it to complete
+        if (result.success && result.orderId) {
+          thirteenFService.updateBasketExecution(
+            basket.id,
+            item.symbol,
+            result.executedShares || 0,
+            result.executedValue || item.targetValue,
+            result.orderId
+          ).catch(error => {
+            console.error(`Failed to update basket execution for ${item.symbol}:`, error);
+          });
+        }
+        
+        console.log(`✅ Order executed for ${item.symbol}: ${result.success ? 'SUCCESS' : 'FAILED'} - ${result.message}`);
+        
+        return {
+          symbol: item.symbol,
+          success: result.success,
+          orderId: result.orderId,
+          message: result.message,
+          targetValue: item.targetValue,
+          executedValue: result.executedValue,
+          executedShares: result.executedShares
+        };
+      } catch (error) {
+        console.error(`❌ Failed to execute trade for ${item.symbol}:`, error);
+        return {
+          symbol: item.symbol,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          targetValue: item.targetValue
+        };
+      }
+    });
+
+    // Wait for all trades to complete simultaneously
+    const tradeResults = await Promise.all(tradePromises);
+    
+    const successCount = tradeResults.filter(r => r.success).length;
+    console.log(`🎯 Basket execution complete: ${successCount}/${tradeResults.length} trades successful`);
+    
+    return res.json({
+      basket,
+      allocation,
+      tradeResults
+    });
+  } catch (error) {
+    console.error('13F investment error:', error);
+    return res.status(500).json({ error: 'Failed to execute 13F investment' });
+  }
+});
+
+// Basket management endpoints
+app.get('/api/baskets', async (req, res) => {
+  try {
+    const baskets = await thirteenFService.getAllBaskets();
+    return res.json({ baskets });
+  } catch (error) {
+    console.error('Get baskets error:', error);
+    return res.status(500).json({ error: 'Failed to get baskets' });
+  }
+});
+
+app.get('/api/baskets/:basketId', async (req, res) => {
+  try {
+    const { basketId } = req.params;
+    const basket = await thirteenFService.getBasket(basketId);
+    
+    if (!basket) {
+      return res.status(404).json({ error: 'Basket not found' });
+    }
+    
+    return res.json({ basket });
+  } catch (error) {
+    console.error('Get basket error:', error);
+    return res.status(500).json({ error: 'Failed to get basket' });
+  }
+});
+
+app.delete('/api/baskets/:basketId', async (req, res) => {
+  try {
+    const { basketId } = req.params;
+    const deleted = await thirteenFService.deleteBasket(basketId);
+    
+    if (!deleted) {
+      return res.status(404).json({ error: 'Basket not found' });
+    }
+    
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Delete basket error:', error);
+    return res.status(500).json({ error: 'Failed to delete basket' });
   }
 });
 

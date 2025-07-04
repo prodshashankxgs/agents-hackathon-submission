@@ -5,6 +5,7 @@ import {
   HedgeIntent, 
   MarketAnalysisIntent, 
   TradeRecommendationIntent,
+  ThirteenFIntent,
   HedgeRecommendation,
   MarketAnalysis,
   LLMError,
@@ -105,10 +106,11 @@ export class AdvancedTradingService {
 - "hedge": Risk management and hedging strategies
 - "analysis": Market analysis requests
 - "recommendation": Trading advice and recommendations
+- "13f": Institutional holdings queries (13F filings, copying portfolios like Berkshire Hathaway)
 
 User request: "${userInput}"
 
-Respond with just the category name (trade, hedge, analysis, or recommendation).`;
+Respond with just the category name (trade, hedge, analysis, recommendation, or 13f).`;
 
       const classificationResponse = await this.anthropic.messages.create({
         model: 'claude-3-5-sonnet-20241022',
@@ -152,6 +154,10 @@ Respond with just the category name (trade, hedge, analysis, or recommendation).
         
         case 'recommendation':
           result = await this.parseRecommendationIntent(userInput);
+          break;
+        
+        case '13f':
+          result = await this.parse13FIntent(userInput);
           break;
         
         default:
@@ -272,6 +278,55 @@ Extract all relevant stock symbols mentioned. If no specific timeframe is given,
       analysisType: parsed.analysis_type || 'comprehensive',
       timeframe: parsed.timeframe || '1 month',
       focusAreas: parsed.focus_areas || []
+    };
+  }
+
+  /**
+   * Parse 13F intent from natural language
+   */
+  private async parse13FIntent(userInput: string): Promise<ThirteenFIntent> {
+    const prompt = `Parse this 13F/institutional holdings request and extract the key information.
+User request: "${userInput}"
+
+Respond with a JSON object containing:
+{
+  "institution": "name of the institution (e.g., 'Berkshire Hathaway', 'Warren Buffett')",
+  "action": "query" or "invest", // "query" for just asking about holdings, "invest" for wanting to copy the portfolio
+  "investment_amount": number // only if action is "invest" and amount is specified
+}
+
+If the user is asking about holdings/13F without mentioning investment, use action "query".
+If they want to invest or copy the portfolio, use action "invest".`;
+
+    const response = await this.anthropic.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 300,
+      temperature: 0.1,
+      messages: [
+        {
+          role: 'user',
+          content: prompt
+        }
+      ]
+    });
+
+    if (!response.content || response.content.length === 0) {
+      throw new LLMError('Empty 13F parsing response from Claude');
+    }
+
+    const content = response.content[0];
+    if (!content || content.type !== 'text') {
+      throw new LLMError('Unexpected 13F parsing response type from Claude');
+    }
+
+    const textContent = content as { type: 'text'; text: string };
+    const parsed = this.extractJSON(textContent.text);
+
+    return {
+      type: '13f',
+      institution: parsed.institution,
+      action: parsed.action,
+      investmentAmount: parsed.investment_amount
     };
   }
 

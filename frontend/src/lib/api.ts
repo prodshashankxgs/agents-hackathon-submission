@@ -138,6 +138,41 @@ export interface MarketAnalysis {
   reasoning: string
 }
 
+export interface ThirteenFHolding {
+  symbol: string
+  companyName: string
+  shares: number
+  marketValue: number
+  percentOfPortfolio: number
+  changeFromPrevious?: number
+  changePercent?: number
+}
+
+export interface ThirteenFPortfolio {
+  institution: string
+  cik: string
+  filingDate: string
+  totalValue: number
+  holdings: ThirteenFHolding[]
+  quarterEndDate: string
+}
+
+export interface PortfolioBasket {
+  id: string
+  name: string
+  institution: string
+  createdAt: Date
+  totalInvestment: number
+  holdings: Array<{
+    symbol: string
+    targetWeight: number
+    actualShares: number
+    actualValue: number
+    orderId?: string
+  }>
+  status: 'pending' | 'executed' | 'partial' | 'failed'
+}
+
 // API functions
 export const apiService = {
   // Health check
@@ -238,6 +273,37 @@ export const apiService = {
 
   async getTradeRecommendations(intent: TradeRecommendationIntent): Promise<{ recommendations: any }> {
     const response = await api.post('/advanced/recommend', { intent })
+    return response.data
+  },
+
+  // 13F operations
+  async get13FPortfolio(intent: any): Promise<{ portfolio: ThirteenFPortfolio }> {
+    const response = await api.post('/advanced/13f', { intent })
+    return response.data
+  },
+
+  async invest13FPortfolio(intent: any, investmentAmount: number): Promise<{ 
+    basket: PortfolioBasket
+    allocation: any[]
+    tradeResults: any[]
+  }> {
+    const response = await api.post('/advanced/13f/invest', { intent, investmentAmount })
+    return response.data
+  },
+
+  // Basket operations
+  async getBaskets(): Promise<{ baskets: PortfolioBasket[] }> {
+    const response = await api.get('/baskets')
+    return response.data
+  },
+
+  async getBasket(basketId: string): Promise<{ basket: PortfolioBasket }> {
+    const response = await api.get(`/baskets/${basketId}`)
+    return response.data
+  },
+
+  async deleteBasket(basketId: string): Promise<{ success: boolean }> {
+    const response = await api.delete(`/baskets/${basketId}`)
     return response.data
   },
 }

@@ -135,25 +135,15 @@ export class AlpacaAdapter implements BrokerAdapter {
         symbol: order.symbol,
         side: order.action,
         type: order.orderType,
-        time_in_force: 'day'
+        time_in_force: order.amountType === 'dollars' ? 'day' : 'day' // Both use 'day' for now
       };
       
       if (order.amountType === 'dollars') {
-        // For dollar amounts, we need to calculate shares based on current price
-        try {
-          const marketData = await this.getMarketData(order.symbol);
-          orderParams.qty = Math.floor(order.amount / marketData.currentPrice);
-          
-          if (orderParams.qty === 0) {
-            throw new BrokerError('Order amount too small to buy even one share');
-          }
-        } catch (error) {
-          // If we can't get market data (market closed), estimate based on notional value
-          // Alpaca will handle the actual share calculation when the order executes
-          console.log('Market data unavailable, using notional order');
-          orderParams.notional = order.amount;
-          delete orderParams.qty;
-        }
+        // Use notional orders - Alpaca handles fractional shares automatically
+        console.log(`Creating notional order for ${order.symbol}: $${order.amount}`);
+        orderParams.notional = order.amount;
+        // Remove qty parameter for notional orders
+        delete orderParams.qty;
       } else {
         orderParams.qty = order.amount;
       }
@@ -163,35 +153,46 @@ export class AlpacaAdapter implements BrokerAdapter {
       }
       
       // Submit the order
+      console.log('Submitting order with params:', JSON.stringify(orderParams, null, 2));
       const alpacaOrder = await this.alpaca.createOrder(orderParams);
+      console.log('Order submitted, initial response:', JSON.stringify(alpacaOrder, null, 2));
       
-      // Wait a moment for order to be processed
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Get updated order status
-      const updatedOrder = await this.alpaca.getOrder(alpacaOrder.id);
+      // Return immediately with order details - don't wait for execution
+      // In paper trading, orders execute instantly but status updates may be delayed
       
       const result: TradeResult = {
-        success: updatedOrder.status !== 'rejected' && updatedOrder.status !== 'canceled',
-        orderId: updatedOrder.id,
+        success: alpacaOrder.status !== 'rejected' && alpacaOrder.status !== 'canceled',
+        orderId: alpacaOrder.id,
         timestamp: new Date(),
-        message: this.getOrderStatusMessage(updatedOrder)
+        message: this.getOrderStatusMessage(alpacaOrder)
       };
 
-      if (updatedOrder.filled_avg_price) {
-        result.executedPrice = parseFloat(updatedOrder.filled_avg_price);
+      // For notional orders, set the expected execution value immediately
+      if (order.amountType === 'dollars') {
+        result.executedValue = order.amount;
+        // For paper trading, we can estimate shares based on current market price
+        if (alpacaOrder.status === 'accepted' || alpacaOrder.status === 'pending_new') {
+          try {
+            const marketData = await this.getMarketData(order.symbol);
+            result.executedShares = order.amount / marketData.currentPrice;
+            result.executedPrice = marketData.currentPrice;
+          } catch (error) {
+            console.log('Could not estimate execution details:', error);
+          }
+        }
+      }
+
+      // Handle any immediate fill information from the initial response
+      if (alpacaOrder.filled_avg_price) {
+        result.executedPrice = parseFloat(alpacaOrder.filled_avg_price);
       }
       
-      if (updatedOrder.filled_qty) {
-        result.executedShares = parseFloat(updatedOrder.filled_qty);
+      if (alpacaOrder.filled_qty) {
+        result.executedShares = parseFloat(alpacaOrder.filled_qty);
       }
       
-      if (updatedOrder.filled_avg_price && updatedOrder.filled_qty) {
-        result.executedValue = parseFloat(updatedOrder.filled_avg_price) * parseFloat(updatedOrder.filled_qty);
-      }
-      
-      if (updatedOrder.status === 'rejected') {
-        result.error = 'Order was rejected by broker';
+      if (alpacaOrder.status === 'rejected') {
+        result.error = alpacaOrder.reject_reason || 'Order was rejected by broker';
       }
 
       return result;
