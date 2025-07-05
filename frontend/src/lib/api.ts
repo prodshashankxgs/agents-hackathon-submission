@@ -292,19 +292,53 @@ export const apiService = {
   },
 
   // Basket operations
-  async getBaskets(): Promise<{ baskets: PortfolioBasket[] }> {
-    const response = await api.get('/baskets')
-    return response.data
+  getBaskets(): Promise<{ baskets: PortfolioBasket[] }> {
+    return api.get('/baskets').then(res => res.data)
   },
 
-  async getBasket(basketId: string): Promise<{ basket: PortfolioBasket }> {
-    const response = await api.get(`/baskets/${basketId}`)
-    return response.data
+  getBasket(basketId: string): Promise<{ basket: PortfolioBasket }> {
+    return api.get(`/baskets/${basketId}`).then(res => res.data)
   },
 
-  async deleteBasket(basketId: string): Promise<{ success: boolean }> {
-    const response = await api.delete(`/baskets/${basketId}`)
-    return response.data
+  deleteBasket(basketId: string): Promise<{ success: boolean }> {
+    return api.delete(`/baskets/${basketId}`).then(res => res.data)
+  },
+
+  // CopyTrade operations
+  queryCopyTrade(intent: any): Promise<{ 
+    politician: string
+    trades: any[]
+    weightedSpread: any[]
+    totalTrades: number
+    lastUpdated: string
+  }> {
+    return api.post('/copytrade/query', {
+      politician: intent.politician,
+      timeframe: intent.timeframe || '6months'
+    }).then(res => res.data)
+  },
+
+  investCopyTrade(intent: any, investmentAmount: number): Promise<{
+    success: boolean
+    basketId: string
+    politician: string
+    totalInvestment: number
+    holdings: any[]
+    status: string
+  }> {
+    return api.post('/copytrade/invest', {
+      politician: intent.politician,
+      investmentAmount,
+      timeframe: intent.timeframe || '6months'
+    }).then(res => res.data)
+  },
+
+  getCopyTradeBaskets(): Promise<any[]> {
+    return api.get('/copytrade/baskets').then(res => res.data)
+  },
+
+  getCopyTradeBasket(basketId: string): Promise<any> {
+    return api.get(`/copytrade/baskets/${basketId}`).then(res => res.data)
   },
 }
 

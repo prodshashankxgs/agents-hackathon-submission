@@ -7,6 +7,7 @@ import { AdvancedTradingService } from './llm/advanced-trading-service';
 import { AlpacaAdapter } from './brokers/alpaca-adapter';
 import { ValidationService } from './trading/validation-service';
 import { ThirteenFService } from './services/thirteenth-f-service';
+import { CopyTradeService } from './services/copytrade-service';
 import { TradeIntent, CLIOptions, TradingError } from './types';
 
 const app = express();
@@ -22,6 +23,7 @@ const advancedTrading = new AdvancedTradingService();
 const broker = new AlpacaAdapter();
 const validator = new ValidationService(broker);
 const thirteenFService = new ThirteenFService();
+const copyTradeService = new CopyTradeService(broker);
 
 // Development mode warnings
 if (config.nodeEnv === 'development') {
@@ -458,6 +460,45 @@ app.post('/api/advanced/13f/invest', async (req, res) => {
   }
 });
 
+// Advanced CopyTrade handler
+app.post('/api/advanced/copytrade', async (req, res) => {
+  try {
+    const { intent, investmentAmount } = req.body;
+    
+    if (!intent || intent.type !== 'copytrade') {
+      return res.status(400).json({ error: 'Invalid copytrade intent' });
+    }
+    
+    if (!investmentAmount || investmentAmount <= 0) {
+      return res.status(400).json({ error: 'Valid investment amount is required' });
+    }
+    
+    // Create weighted spread portfolio
+    const portfolio = await copyTradeService.createWeightedSpread(
+      intent.politician, 
+      investmentAmount, 
+      intent.timeframe || '6months'
+    );
+    
+    // Execute the copytrade if requested
+    let basket = null;
+    if (intent.shouldExecute) {
+      basket = await copyTradeService.executeCopyTrade(portfolio, investmentAmount);
+    }
+    
+    return res.json({
+      portfolio,
+      basket,
+      executed: !!basket
+    });
+  } catch (error) {
+    console.error('Advanced copytrade error:', error);
+    return res.status(500).json({ 
+      error: error instanceof Error ? error.message : 'Failed to process copytrade request' 
+    });
+  }
+});
+
 // Basket management endpoints
 app.get('/api/baskets', async (req, res) => {
   try {
@@ -498,6 +539,90 @@ app.delete('/api/baskets/:basketId', async (req, res) => {
   } catch (error) {
     console.error('Delete basket error:', error);
     return res.status(500).json({ error: 'Failed to delete basket' });
+  }
+});
+
+// CopyTrade endpoints
+app.post('/api/copytrade/query', async (req, res) => {
+  try {
+    const { politician, timeframe = '6months' } = req.body;
+    
+    if (!politician) {
+      return res.status(400).json({ error: 'Politician name is required' });
+    }
+    
+    const trades = await copyTradeService.getPoliticianTrades(politician, timeframe);
+    const portfolio = await copyTradeService.createWeightedSpread(politician, 10000, timeframe); // Default $10k for analysis
+    
+    return res.json({
+      politician,
+      trades,
+      weightedSpread: portfolio.weightedSpread,
+      totalTrades: trades.length,
+      lastUpdated: portfolio.lastUpdated
+    });
+  } catch (error) {
+    console.error('CopyTrade query error:', error);
+    return res.status(500).json({ 
+      error: error instanceof Error ? error.message : 'Failed to fetch politician trades' 
+    });
+  }
+});
+
+app.post('/api/copytrade/invest', async (req, res) => {
+  try {
+    const { politician, investmentAmount, timeframe = '6months' } = req.body;
+    
+    if (!politician) {
+      return res.status(400).json({ error: 'Politician name is required' });
+    }
+    
+    if (!investmentAmount || investmentAmount <= 0) {
+      return res.status(400).json({ error: 'Valid investment amount is required' });
+    }
+    
+    const portfolio = await copyTradeService.createWeightedSpread(politician, investmentAmount, timeframe);
+    const basket = await copyTradeService.executeCopyTrade(portfolio, investmentAmount);
+    
+    return res.json({
+      success: true,
+      basketId: basket.id,
+      politician: basket.politician,
+      totalInvestment: basket.totalInvestment,
+      holdings: basket.holdings,
+      status: basket.status
+    });
+  } catch (error) {
+    console.error('CopyTrade invest error:', error);
+    return res.status(500).json({ 
+      error: error instanceof Error ? error.message : 'Failed to execute copytrade investment' 
+    });
+  }
+});
+
+app.get('/api/copytrade/baskets', async (req, res) => {
+  try {
+    const baskets = await copyTradeService.getCopyTradeBaskets();
+    return res.json(baskets);
+  } catch (error) {
+    console.error('Get copytrade baskets error:', error);
+    return res.status(500).json({ error: 'Failed to fetch copytrade baskets' });
+  }
+});
+
+app.get('/api/copytrade/baskets/:basketId', async (req, res) => {
+  try {
+    const { basketId } = req.params;
+    const basket = await copyTradeService.getCopyTradeBasket(basketId);
+    
+    if (!basket) {
+      return res.status(404).json({ error: 'Copytrade basket not found' });
+    }
+    
+    return res.json(basket);
+  } catch (error) {
+    console.error('Get copytrade basket error:', error);
+    return res.status(500).json({ error: 'Failed to fetch copytrade basket' });
   }
 });
 

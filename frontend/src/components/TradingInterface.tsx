@@ -17,7 +17,8 @@ import {
   LightbulbIcon,
   BrainCircuitIcon,
   ShieldCheckIcon,
-  RocketIcon
+  RocketIcon,
+  UsersIcon
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { apiService, type HedgeRecommendation, type MarketAnalysis, type ThirteenFPortfolio, type PortfolioBasket } from '@/lib/api'
@@ -55,6 +56,14 @@ export function TradingInterface() {
     allocation: any[]
     tradeResults: any[]
   } | null>(null)
+  const [copyTradeData, setCopyTradeData] = useState<{
+    politician: string
+    trades: any[]
+    weightedSpread: any[]
+    totalTrades: number
+    lastUpdated: string
+  } | null>(null)
+  const [copyTradeInvestment, setCopyTradeInvestment] = useState<any>(null)
   const [showInvestmentInput, setShowInvestmentInput] = useState(false)
   const [investmentAmount, setInvestmentAmount] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -220,6 +229,8 @@ export function TradingInterface() {
     setTradeRecommendations(null)
     setThirteenFPortfolio(null)
     setThirteenFInvestment(null)
+    setCopyTradeData(null)
+    setCopyTradeInvestment(null)
     setShowInvestmentInput(false)
     setInvestmentAmount('')
     setShowConfirmation(false)
@@ -308,8 +319,23 @@ export function TradingInterface() {
         setThirteenFPortfolio(portfolio)
         updateStepStatus(3, 'complete', '13F portfolio ready')
         setShowInvestmentInput(true)
+      } else if (type === 'copytrade') {
+        await advanceToStep(0) // Analyzing request
+        
+        await advanceToStep(1) // Fetching politician trades
+        const copyTradeResult = await apiService.queryCopyTrade(intent as any)
+        
+        await advanceToStep(2) // Calculating allocation
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
+        await advanceToStep(3) // Preparing options
+        setCopyTradeData(copyTradeResult)
+        updateStepStatus(3, 'complete', 'Copytrade portfolio ready')
+        setShowInvestmentInput(true)
       }
       
+      // Clear the input after successful processing
+      setCommand('')
       setIsLoading(false)
       setLoadingMessage('')
     } catch (error: any) {
@@ -399,7 +425,7 @@ export function TradingInterface() {
   }
 
   const handleInvestmentSubmit = async () => {
-    if (!thirteenFPortfolio || !investmentAmount) return
+    if ((!thirteenFPortfolio && !copyTradeData) || !investmentAmount) return
     
     const amount = parseFloat(investmentAmount)
     if (isNaN(amount) || amount <= 0) {
@@ -408,17 +434,30 @@ export function TradingInterface() {
     }
     
     setIsLoading(true)
-    setLoadingMessage('Executing portfolio spread investment...')
     
     try {
-      const intent = {
-        type: '13f',
-        institution: thirteenFPortfolio.institution,
-        action: 'invest'
+      if (thirteenFPortfolio) {
+        setLoadingMessage('Executing portfolio spread investment...')
+        const intent = {
+          type: '13f',
+          institution: thirteenFPortfolio.institution,
+          action: 'invest'
+        }
+        
+        const result = await apiService.invest13FPortfolio(intent, amount)
+        setThirteenFInvestment(result)
+      } else if (copyTradeData) {
+        setLoadingMessage('Executing copytrade investment...')
+        const intent = {
+          type: 'copytrade',
+          politician: copyTradeData.politician,
+          action: 'invest'
+        }
+        
+        const result = await apiService.investCopyTrade(intent, amount)
+        setCopyTradeInvestment(result)
       }
       
-      const result = await apiService.invest13FPortfolio(intent, amount)
-      setThirteenFInvestment(result)
       setShowInvestmentInput(false)
       
       // Refresh account data
@@ -872,6 +911,115 @@ export function TradingInterface() {
                   <div className="bg-white/60 p-3 rounded-lg">
                     <p className="text-sm text-green-800">
                       Your {thirteenFInvestment.basket.institution} portfolio spread has been created and is now 
+                      available in your portfolio dashboard.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* CopyTrade Portfolio Display */}
+          {copyTradeData && showProcessingContainer && (
+            <div className="mt-4 p-4 rounded-xl border bg-blue-50 border-blue-200 slide-up-fade-in">
+              <div className="flex items-start space-x-3">
+                <UsersIcon className="w-5 h-5 text-blue-600 mt-0.5" />
+                <div className="flex-1 space-y-3">
+                  <div>
+                    <h3 className="font-medium text-blue-900">CopyTrade Portfolio: {copyTradeData.politician}</h3>
+                    <p className="text-sm text-blue-800">
+                      {copyTradeData.totalTrades} trades found • Last updated: {new Date(copyTradeData.lastUpdated).toLocaleDateString()}
+                    </p>
+                  </div>
+                  
+                  <div className="bg-white/60 p-3 rounded-lg">
+                    <h4 className="text-sm font-medium text-blue-900 mb-2">Weighted Portfolio Spread:</h4>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {copyTradeData.weightedSpread.map((holding: any, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between text-xs">
+                          <div>
+                            <span className="font-medium">{holding.symbol}</span>
+                            <span className="text-gray-600 ml-2">{holding.companyName}</span>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-medium">{(holding.weight * 100).toFixed(1)}%</div>
+                            <div className="text-gray-600">{holding.trades} trades</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {showInvestmentInput && (
+                    <div className="bg-white/60 p-4 rounded-lg space-y-3">
+                      <h4 className="text-sm font-medium text-blue-900">
+                        Would you like to invest in a weighted spread of this copytrade portfolio?
+                      </h4>
+                      <div className="flex items-center space-x-3">
+                        <Input
+                          type="number"
+                          placeholder="Investment amount (e.g., 10000)"
+                          value={investmentAmount}
+                          onChange={(e) => setInvestmentAmount(e.target.value)}
+                          className="flex-1"
+                          disabled={isLoading}
+                        />
+                        <button
+                          onClick={handleInvestmentSubmit}
+                          disabled={isLoading || !investmentAmount}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                        >
+                          {isLoading ? 'Investing...' : 'Invest'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-blue-700">
+                        This will create a weighted portfolio spread based on {copyTradeData.politician}'s trading activity.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* CopyTrade Investment Results Display */}
+          {copyTradeInvestment && showProcessingContainer && (
+            <div className="mt-4 p-4 rounded-xl border bg-green-50 border-green-200 slide-up-fade-in">
+              <div className="flex items-start space-x-3">
+                <CheckCircleIcon className="w-5 h-5 text-green-600 mt-0.5" />
+                <div className="flex-1 space-y-3">
+                  <div>
+                    <h3 className="font-medium text-green-900">CopyTrade Investment Executed</h3>
+                    <p className="text-sm text-green-800">
+                      Politician: {copyTradeInvestment.politician}
+                    </p>
+                    <p className="text-sm text-green-800">
+                      Total Investment: {formatCurrency(copyTradeInvestment.totalInvestment)}
+                    </p>
+                  </div>
+                  
+                  <div className="bg-white/60 p-3 rounded-lg">
+                    <h4 className="text-sm font-medium text-green-900 mb-2">Holdings:</h4>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {copyTradeInvestment.holdings?.map((holding: any, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between text-xs">
+                          <div>
+                            <span className="font-medium">{holding.symbol}</span>
+                            <span className="text-gray-600 ml-2">
+                              {holding.shares} shares
+                            </span>
+                          </div>
+                          <span className="text-green-700">
+                            {formatCurrency(holding.value)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <div className="bg-white/60 p-3 rounded-lg">
+                    <p className="text-sm text-green-800">
+                      Your {copyTradeInvestment.politician} copytrade portfolio has been created and is now 
                       available in your portfolio dashboard.
                     </p>
                   </div>

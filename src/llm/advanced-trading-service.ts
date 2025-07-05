@@ -6,6 +6,7 @@ import {
   MarketAnalysisIntent, 
   TradeRecommendationIntent,
   ThirteenFIntent,
+  CopyTradeIntent,
   HedgeRecommendation,
   MarketAnalysis,
   LLMError,
@@ -107,10 +108,11 @@ export class AdvancedTradingService {
 - "analysis": Market analysis requests
 - "recommendation": Trading advice and recommendations
 - "13f": Institutional holdings queries (13F filings, copying portfolios like Berkshire Hathaway)
+- "copytrade": Politician trading queries (Nancy Pelosi, Paul Pelosi, Dan Crenshaw, etc.)
 
 User request: "${userInput}"
 
-Respond with just the category name (trade, hedge, analysis, recommendation, or 13f).`;
+Respond with just the category name (trade, hedge, analysis, recommendation, 13f, or copytrade).`;
 
       const classificationResponse = await this.anthropic.messages.create({
         model: 'claude-3-5-sonnet-20241022',
@@ -158,6 +160,10 @@ Respond with just the category name (trade, hedge, analysis, recommendation, or 
         
         case '13f':
           result = await this.parse13FIntent(userInput);
+          break;
+        
+        case 'copytrade':
+          result = await this.parseCopyTradeIntent(userInput);
           break;
         
         default:
@@ -613,6 +619,54 @@ Respond with a JSON object:
     const content = response.content[0];
     if (!content || content.type !== 'text') {
       throw new LLMError('Unexpected trade recommendations response type from Claude');
+    }
+
+    const textContent = content as { type: 'text'; text: string };
+    return this.extractJSON(textContent.text);
+  }
+
+  /**
+   * Parse copytrade intent from natural language
+   */
+  private async parseCopyTradeIntent(userInput: string): Promise<CopyTradeIntent> {
+    const prompt = `Parse this copytrade request and extract the politician name and action.
+
+User request: "${userInput}"
+
+Extract:
+- politician: The politician's name (e.g., "Nancy Pelosi", "Paul Pelosi", "Dan Crenshaw")
+- action: Either "query" (just show trades) or "invest" (create portfolio)
+- investmentAmount: If mentioned, the dollar amount to invest
+- timeframe: Time period for trades (e.g., "6months", "1year", "recent")
+
+Respond with JSON only:
+{
+  "type": "copytrade",
+  "politician": "politician name",
+  "action": "query" or "invest",
+  "investmentAmount": number or null,
+  "timeframe": "timeframe" or null
+}`;
+
+    const response = await this.anthropic.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 200,
+      temperature: 0,
+      messages: [
+        {
+          role: 'user',
+          content: prompt
+        }
+      ]
+    });
+
+    if (!response.content || response.content.length === 0) {
+      throw new LLMError('Empty copytrade intent response from Claude');
+    }
+
+    const content = response.content[0];
+    if (!content || content.type !== 'text') {
+      throw new LLMError('Unexpected copytrade intent response type from Claude');
     }
 
     const textContent = content as { type: 'text'; text: string };
