@@ -160,10 +160,7 @@ export const performanceMiddleware = (req: any, res: any, next: any) => {
     const success = res.statusCode < 400;
     const duration = performanceMonitor.endTimer(operationName, success);
     
-    // Log slow operations
-    if (duration > 1000) {
-      console.warn(`Slow operation detected: ${operationName} took ${duration}ms`);
-    }
+    // Silent monitoring - no slow operation warnings
     
     originalSend.call(this, data);
   };

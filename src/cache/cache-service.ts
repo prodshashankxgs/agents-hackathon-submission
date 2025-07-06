@@ -22,6 +22,11 @@ export class CacheService {
   private readonly INTENT_TTL = 300000; // 5 minutes
   private readonly VALIDATION_TTL = 60000; // 1 minute
   private readonly ACCOUNT_TTL = 120000; // 2 minutes
+  
+  // Intelligent TTL based on market conditions
+  private readonly MARKET_HOURS_TTL = 15000; // 15 seconds during market hours
+  private readonly AFTER_HOURS_TTL = 300000; // 5 minutes after hours
+  private readonly WEEKEND_TTL = 3600000; // 1 hour on weekends
 
   /**
    * Get cached market data
@@ -39,14 +44,36 @@ export class CacheService {
   }
 
   /**
-   * Cache market data with TTL
+   * Cache market data with intelligent TTL based on market conditions
    */
-  setMarketData(symbol: string, data: MarketData, ttl: number = this.DEFAULT_TTL): void {
+  setMarketData(symbol: string, data: MarketData, ttl?: number): void {
+    const intelligentTTL = ttl || this.calculateIntelligentTTL(data.isMarketOpen);
+    
     this.marketDataCache.set(symbol, {
       data,
       timestamp: Date.now(),
-      ttl
+      ttl: intelligentTTL
     });
+  }
+
+  /**
+   * Calculate intelligent TTL based on market conditions
+   */
+  private calculateIntelligentTTL(isMarketOpen: boolean): number {
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0 = Sunday, 6 = Saturday
+    
+    // Weekend - use longer TTL
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      return this.WEEKEND_TTL;
+    }
+    
+    // Weekday - check if market is open
+    if (isMarketOpen) {
+      return this.MARKET_HOURS_TTL;
+    } else {
+      return this.AFTER_HOURS_TTL;
+    }
   }
 
   /**
@@ -183,6 +210,49 @@ export class CacheService {
   }
 
   /**
+   * Cache warming - preload popular symbols
+   */
+  async warmCache(symbols: string[], dataFetcher: (symbol: string) => Promise<MarketData>): Promise<void> {
+    const warmingPromises = symbols.map(async (symbol) => {
+      try {
+        if (!this.getMarketData(symbol)) {
+          const data = await dataFetcher(symbol);
+          this.setMarketData(symbol, data);
+        }
+      } catch (error) {
+        console.warn(`Failed to warm cache for ${symbol}:`, error);
+      }
+    });
+
+    await Promise.allSettled(warmingPromises);
+  }
+
+  /**
+   * Invalidate cache on market events
+   */
+  invalidateMarketData(symbols?: string[]): void {
+    if (symbols) {
+      symbols.forEach(symbol => this.marketDataCache.delete(symbol));
+    } else {
+      this.marketDataCache.clear();
+    }
+  }
+
+  /**
+   * Get cache hit ratio for performance monitoring
+   */
+  getHitRatio(): {
+    marketData: { hits: number; misses: number; ratio: number };
+    intents: { hits: number; misses: number; ratio: number };
+  } {
+    // This would require tracking hits/misses - simplified version
+    return {
+      marketData: { hits: 0, misses: 0, ratio: 0 },
+      intents: { hits: 0, misses: 0, ratio: 0 }
+    };
+  }
+
+  /**
    * Get cache statistics
    */
   getStats(): {
@@ -190,12 +260,19 @@ export class CacheService {
     intents: number;
     validations: number;
     accountInfo: boolean;
+    memoryUsage: number;
   } {
+    // Estimate memory usage (simplified)
+    const marketDataSize = this.marketDataCache.size * 1024; // ~1KB per entry
+    const intentSize = this.intentCache.size * 512; // ~512B per entry
+    const validationSize = this.validationCache.size * 256; // ~256B per entry
+    
     return {
       marketData: this.marketDataCache.size,
       intents: this.intentCache.size,
       validations: this.validationCache.size,
-      accountInfo: this.accountInfoCache !== null
+      accountInfo: this.accountInfoCache !== null,
+      memoryUsage: marketDataSize + intentSize + validationSize
     };
   }
 }

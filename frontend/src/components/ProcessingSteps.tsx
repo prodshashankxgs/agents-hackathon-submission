@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CheckCircleIcon, LoaderIcon, CircleIcon } from 'lucide-react'
+import { CheckCircleIcon, LoaderIcon, CircleIcon, AlertCircleIcon } from 'lucide-react'
 
 export interface ProcessingStep {
   id: string
@@ -28,30 +28,28 @@ export function ProcessingSteps({ steps, currentStep }: ProcessingStepsProps) {
       {steps.map((step, index) => {
         const isAnimated = animatedSteps.includes(index)
         const isActive = index === currentStep
-        const isComplete = index < currentStep
         
         return (
           <div
             key={step.id}
             className={`
-              status-indicator
+              processing-step
               ${step.status === 'processing' ? 'processing' : ''}
               ${step.status === 'complete' ? 'complete' : ''}
               ${step.status === 'error' ? 'error' : ''}
-              ${isAnimated ? 'processing-step-enter' : 'opacity-0'}
-              ${isComplete ? 'processing-step-complete' : ''}
+              ${isAnimated ? 'animate-in' : ''}
             `}
             style={{
-              animationDelay: `${index * 100}ms`
+              animationDelay: `${index * 150}ms`
             }}
           >
             <div className="flex-shrink-0">
               {step.status === 'complete' ? (
-                <CheckCircleIcon className="w-5 h-5" />
+                <CheckCircleIcon className="w-5 h-5 text-green-600" />
               ) : step.status === 'processing' ? (
-                <LoaderIcon className="w-5 h-5 animate-spin" />
+                <LoaderIcon className="w-5 h-5 animate-spin text-green-600" />
               ) : step.status === 'error' ? (
-                <CircleIcon className="w-5 h-5 fill-current" />
+                <AlertCircleIcon className="w-5 h-5 text-red-500" />
               ) : (
                 <CircleIcon className="w-5 h-5 text-gray-300" />
               )}
@@ -66,9 +64,9 @@ export function ProcessingSteps({ steps, currentStep }: ProcessingStepsProps) {
                 </span>
                 {isActive && step.status === 'processing' && (
                   <div className="flex space-x-1">
-                    <div className="w-1.5 h-1.5 bg-blue-600 rounded-full pulse-dot" />
-                    <div className="w-1.5 h-1.5 bg-blue-600 rounded-full pulse-dot" style={{ animationDelay: '0.2s' }} />
-                    <div className="w-1.5 h-1.5 bg-blue-600 rounded-full pulse-dot" style={{ animationDelay: '0.4s' }} />
+                    <div className="w-1.5 h-1.5 bg-green-600 rounded-full pulse-dot" />
+                    <div className="w-1.5 h-1.5 bg-green-600 rounded-full pulse-dot" style={{ animationDelay: '0.2s' }} />
+                    <div className="w-1.5 h-1.5 bg-green-600 rounded-full pulse-dot" style={{ animationDelay: '0.4s' }} />
                   </div>
                 )}
               </div>

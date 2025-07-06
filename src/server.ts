@@ -254,18 +254,19 @@ app.post('/api/advanced/parse', async (req, res) => {
       return res.status(400).json({ error: 'Invalid input provided' });
     }
 
-    // Get account info for context
+    // Get account info for context (no timeout - let it complete)
     let accountInfo;
     try {
       accountInfo = await broker.getAccountInfo();
-    } catch (error) {
-      console.log('Could not fetch account info for context');
+    } catch (error: any) {
+      console.log('Could not fetch account info for context:', error?.message || 'Unknown error');
     }
 
+    // Parse the intent (no timeout - let it complete)
     const intent = await advancedTrading.parseAdvancedIntent(input, accountInfo);
     
     return res.json({ intent, type: intent.type });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Advanced parse error:', error);
     
     if (error instanceof TradingError) {
@@ -635,6 +636,7 @@ app.post('/api/command/parse', async (req, res) => {
     const { command } = req.body
     
     if (!command?.trim()) {
+      console.log('❌ Empty command received:', req.body)
       return res.status(400).json({ 
         error: 'Command is required' 
       })
@@ -688,6 +690,7 @@ app.post('/api/command/execute', async (req, res) => {
     const { command } = req.body
     
     if (!command?.trim()) {
+      console.log('❌ Empty command received for execution:', req.body)
       return res.status(400).json({ 
         error: 'Command is required' 
       })

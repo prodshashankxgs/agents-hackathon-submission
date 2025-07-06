@@ -4,7 +4,7 @@ const API_BASE_URL = 'http://localhost:3001/api'
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000,
+  timeout: 0, // No global timeout - let requests complete
   headers: {
     'Content-Type': 'application/json',
   },
@@ -257,7 +257,7 @@ export const apiService = {
 
   // Advanced trading operations
   async parseAdvancedIntent(input: string): Promise<{ intent: AdvancedTradeIntent; type: string }> {
-    const response = await api.post('/advanced/parse', { input })
+    const response = await api.post('/advanced/parse', { input }, { timeout: 0 }) // No timeout - let it complete
     return response.data
   },
 

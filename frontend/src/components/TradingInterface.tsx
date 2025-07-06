@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { 
   SparklesIcon, 
   AlertTriangleIcon, 
@@ -8,8 +8,6 @@ import {
   TrendingUpIcon,
   TrendingDownIcon,
   DollarSignIcon,
-  LoaderIcon,
-  ArrowRightIcon,
   CheckIcon,
   XIcon,
   ShieldIcon,
@@ -18,12 +16,15 @@ import {
   BrainCircuitIcon,
   ShieldCheckIcon,
   RocketIcon,
-  UsersIcon
+  UsersIcon,
+  ZapIcon,
+  InfoIcon,
+  SendIcon
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { apiService, type HedgeRecommendation, type MarketAnalysis, type ThirteenFPortfolio, type PortfolioBasket } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
-import { ProcessingSteps, type ProcessingStep } from './ProcessingSteps'
+import { type ProcessingStep } from './ProcessingSteps'
 
 interface ParsedCommand {
   action: 'buy' | 'sell'
@@ -141,6 +142,8 @@ export function TradingInterface() {
     // Complete previous step
     if (stepIndex > 0) {
       updateStepStatus(stepIndex - 1, 'complete')
+      // Wait for completion animation
+      await new Promise(resolve => setTimeout(resolve, 500))
     }
     
     // Start new step
@@ -149,8 +152,8 @@ export function TradingInterface() {
       updateStepStatus(stepIndex, 'processing')
     }
     
-    // Add a small delay for animation
-    await new Promise(resolve => setTimeout(resolve, 300))
+    // Add a delay for each step to show one by one
+    await new Promise(resolve => setTimeout(resolve, 800))
   }
 
   const resetProcessing = () => {
@@ -183,43 +186,13 @@ export function TradingInterface() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [showConfirmation, parsedCommand])
 
-  const executeCommandMutation = useMutation({
-    mutationFn: (command: string) => apiService.executeCommand(command),
-    onSuccess: (data) => {
-      setTradeHistory(prev => [{
-        command,
-        result: data,
-        timestamp: new Date()
-      }, ...prev])
-      setCommand('')
-      setParsedCommand(null)
-      setShowConfirmation(false)
-      resetProcessing()
-      // Refresh account data after successful trade
-      if (data.success) {
-        queryClient.invalidateQueries({ queryKey: ['account'] })
-      }
-    },
-    onError: (error: any) => {
-      setTradeHistory(prev => [{
-        command,
-        result: {
-          success: false,
-          message: error.message || 'Trade execution failed',
-          error: error.message
-        },
-        timestamp: new Date()
-      }, ...prev])
-      setShowConfirmation(false)
-      if (currentStep >= 0) {
-        updateStepStatus(currentStep, 'error', error.message || 'Trade execution failed')
-      }
-    }
-  })
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!command.trim() || isLoading) return
+    
+    console.log('Submitting command:', command)
     
     setIsLoading(true)
     setLoadingMessage('Understanding your request...')
@@ -252,7 +225,7 @@ export function TradingInterface() {
         await advanceToStep(1) // Validating parameters
         await new Promise(resolve => setTimeout(resolve, 800))
         
-        setParsedCommand({
+        const parsedTrade = {
           action: tradeIntent.action,
           symbol: tradeIntent.symbol,
           quantity: tradeIntent.amountType === 'shares' ? tradeIntent.amount : undefined,
@@ -260,10 +233,12 @@ export function TradingInterface() {
           orderType: tradeIntent.orderType,
           limitPrice: tradeIntent.limitPrice,
           isValid: true
-        })
+        }
+        
+        setParsedCommand(parsedTrade)
         
         await advanceToStep(2) // Ready for confirmation
-        updateStepStatus(2, 'complete', 'Trade ready for execution')
+        updateStepStatus(2, 'complete', 'Trade ready for confirmation')
         setShowConfirmation(true)
         
       } else if (type === 'hedge') {
@@ -280,6 +255,11 @@ export function TradingInterface() {
         setHedgeRecommendation(recommendation)
         updateStepStatus(3, 'complete', 'Hedge strategy ready')
         
+        // Auto-hide processing after delay
+        setTimeout(() => {
+          resetProcessing()
+        }, 3000)
+        
       } else if (type === 'analysis') {
         await advanceToStep(0) // Processing request
         
@@ -293,6 +273,11 @@ export function TradingInterface() {
         setMarketAnalysis(analyses)
         updateStepStatus(3, 'complete', 'Analysis complete')
         
+        // Auto-hide processing after delay
+        setTimeout(() => {
+          resetProcessing()
+        }, 3000)
+        
       } else if (type === 'recommendation') {
         await advanceToStep(0) // Understanding criteria
         
@@ -305,6 +290,11 @@ export function TradingInterface() {
         await advanceToStep(3) // Finalizing recommendations
         setTradeRecommendations(recommendations)
         updateStepStatus(3, 'complete', 'Recommendations ready')
+        
+        // Auto-hide processing after delay
+        setTimeout(() => {
+          resetProcessing()
+        }, 3000)
         
       } else if (type === '13f') {
         await advanceToStep(0) // Analyzing request
@@ -334,8 +324,7 @@ export function TradingInterface() {
         setShowInvestmentInput(true)
       }
       
-      // Clear the input after successful processing
-      setCommand('')
+      // Don't clear command here - wait until after confirmation/execution
       setIsLoading(false)
       setLoadingMessage('')
     } catch (error: any) {
@@ -379,7 +368,7 @@ export function TradingInterface() {
           
           if (parsed.isValid) {
             await advanceToStep(2) // Ready for confirmation
-            updateStepStatus(2, 'complete', 'Trade ready for execution')
+            updateStepStatus(2, 'complete', 'Trade ready for confirmation')
             setShowConfirmation(true)
           } else {
             updateStepStatus(1, 'error', 'Invalid trade parameters')
@@ -402,11 +391,68 @@ export function TradingInterface() {
     }
   }
 
-  const handleConfirmTrade = () => {
+  const handleConfirmTrade = async () => {
+    if (!parsedCommand?.isValid) return
+    
+    // Store the current command before any state changes
+    const currentCommand = command
+    if (!currentCommand?.trim()) {
+      console.error('No command to execute')
+      return
+    }
+    
     setIsLoading(true)
-    executeCommandMutation.mutate(command, {
-      onSettled: () => setIsLoading(false)
-    })
+    setShowConfirmation(false)
+    
+    // Add execution step to processing
+    const executionStep: ProcessingStep = { 
+      id: 'execute', 
+      label: 'Executing trade...', 
+      status: 'processing' 
+    }
+    setProcessingSteps(prev => [...prev, executionStep])
+    setCurrentStep(prev => prev + 1)
+    
+    try {
+      console.log('Executing command:', currentCommand)
+      const result = await apiService.executeCommand(currentCommand)
+      
+      // Update execution step status
+      updateStepStatus(processingSteps.length, result.success ? 'complete' : 'error', 
+        result.success ? 'Trade executed successfully' : result.message || 'Trade execution failed')
+      
+      // Add to trade history
+      setTradeHistory(prev => [{
+        command: currentCommand,
+        result,
+        timestamp: new Date()
+      }, ...prev])
+      
+      if (result.success) {
+        // Refresh account data
+        queryClient.invalidateQueries({ queryKey: ['account'] })
+      }
+      
+      // Clear the command and reset after a delay
+      setTimeout(() => {
+        setCommand('')
+        resetProcessing()
+      }, 1500)
+      
+    } catch (error: any) {
+      updateStepStatus(processingSteps.length, 'error', error.message || 'Trade execution failed')
+      setTradeHistory(prev => [{
+        command: currentCommand,
+        result: {
+          success: false,
+          message: error.message || 'Trade execution failed',
+          error: error.message
+        },
+        timestamp: new Date()
+      }, ...prev])
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleCancelTrade = () => {
@@ -414,6 +460,7 @@ export function TradingInterface() {
     setParsedCommand(null)
     setCommand('')
     resetProcessing()
+    setIsLoading(false)
     inputRef.current?.focus()
   }
 
@@ -473,663 +520,802 @@ export function TradingInterface() {
   }
 
   return (
-    <div className="space-y-4 lg:space-y-6">
-      {/* Main Input Card */}
-      <div className="bg-white rounded-xl p-4 lg:p-8 border border-gray-200 shadow-sm">
-        <div className="mb-4 lg:mb-6">
-          <h2 className="text-lg lg:text-xl font-semibold text-gray-900 mb-2 flex items-center">
-            <SparklesIcon className="w-4 lg:w-5 h-4 lg:h-5 mr-2 lg:mr-3 text-gray-400" />
-            <span>Natural Language Trading</span>
-          </h2>
-          <p className="text-gray-600 text-sm">
-            Type your trading commands, 13F queries, hedging questions, or market analysis requests in plain English.
-          </p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4 lg:space-y-6">
-          <div className="relative">
-            <Input
-              ref={inputRef}
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder='e.g., "Buy $1000 of AAPL", "What is Bridgewater&apos;s 13F?", or "How to hedge my LULU position?"'
-              className="w-full px-4 lg:px-6 py-3 lg:py-4 border border-gray-200 rounded-xl bg-white focus:border-gray-900 focus:ring-1 focus:ring-gray-900 focus:outline-none transition-all duration-200 placeholder:text-gray-500 text-sm lg:text-base pr-12 lg:pr-14"
-              disabled={isLoading}
-            />
-            
-            {/* Loading indicator */}
-            {isLoading && !showProcessingContainer && (
-              <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                <LoaderIcon className="w-5 h-5 text-gray-400 animate-spin" />
-                {loadingMessage && (
-                  <span className="text-sm text-gray-500 animate-pulse">{loadingMessage}</span>
-                )}
-              </div>
-            )}
-            
-            {/* Send button when not loading */}
-            {!isLoading && command.trim() && (
-              <button
-                type="submit"
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110"
-              >
-                <ArrowRightIcon className="w-4 h-4 text-white" />
-              </button>
-            )}
-          </div>
-
-          {/* Processing Container */}
-          {showProcessingContainer && (
-            <div className="processing-container result-container-enter">
-              <div className="flex items-start space-x-3 lg:space-x-4">
-                <div className="flex-shrink-0 mt-1">
-                  {requestType === 'trade' && <RocketIcon className="w-5 lg:w-6 h-5 lg:h-6 text-gray-600" />}
-                  {requestType === 'hedge' && <ShieldCheckIcon className="w-5 lg:w-6 h-5 lg:h-6 text-blue-600" />}
-                  {requestType === 'analysis' && <BrainCircuitIcon className="w-5 lg:w-6 h-5 lg:h-6 text-purple-600" />}
-                  {requestType === 'recommendation' && <LightbulbIcon className="w-5 lg:w-6 h-5 lg:h-6 text-amber-600" />}
+    <div className="space-y-6">
+      {/* Main Input Card with modern design */}
+      <div className="brokerage-card p-8 relative overflow-hidden">
+        {/* Subtle gradient background */}
+        <div className="absolute inset-0 bg-gradient-to-br from-gray-50/50 to-white opacity-50" />
+        
+        <div className="relative">
+          <div className="mb-6 flex items-start justify-between">
+            <div>
+              <h2 className="text-2xl font-semibold text-gray-900 mb-2 flex items-center">
+                <div className="p-2 bg-gray-900 rounded-lg mr-3">
+                  <SparklesIcon className="w-5 h-5 text-white" />
                 </div>
-                
-                <div className="flex-1 space-y-3 lg:space-y-4">
-                  <div>
-                    <h3 className="text-sm lg:text-base font-semibold text-gray-900 mb-1">
-                      {requestType === 'trade' && 'Processing Trade Request'}
-                      {requestType === 'hedge' && 'Analyzing Hedge Strategy'}
-                      {requestType === 'analysis' && 'Performing Market Analysis'}
-                      {requestType === 'recommendation' && 'Generating Recommendations'}
-                    </h3>
-                    <p className="text-xs lg:text-sm text-gray-600 break-words">"{command}"</p>
-                  </div>
-                  
-                  <ProcessingSteps steps={processingSteps} currentStep={currentStep} />
-                </div>
-              </div>
+                <span>AI Trading Assistant</span>
+              </h2>
+              <p className="text-gray-600 text-sm leading-relaxed max-w-2xl">
+                Execute trades, analyze markets, hedge positions, or explore institutional portfolios using natural language.
+              </p>
             </div>
-          )}
-
-          {/* Command Preview - Now integrated with processing container */}
-          {parsedCommand && showProcessingContainer && (
-            <div className={`mt-4 p-4 rounded-xl border transition-all duration-200 slide-up-fade-in ${
-              parsedCommand.isValid 
-                ? 'bg-green-50 border-green-200' 
-                : 'bg-red-50 border-red-200'
-            }`}>
-              <div className="flex items-start space-x-3">
-                <div className="mt-0.5">
-                  {parsedCommand.isValid ? (
-                    <CheckCircleIcon className="w-5 h-5 text-green-600" />
-                  ) : (
-                    <XCircleIcon className="w-5 h-5 text-red-600" />
-                  )}
-                </div>
-                
-                <div className="flex-1 space-y-2 min-w-0">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
-                      parsedCommand.action === 'buy' 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {parsedCommand.action === 'buy' ? (
-                        <TrendingUpIcon className="w-3 h-3 mr-1" />
-                      ) : (
-                        <TrendingDownIcon className="w-3 h-3 mr-1" />
-                      )}
-                      {parsedCommand.action.toUpperCase()}
-                    </span>
-                    
-                    <span className="font-medium text-gray-900">
-                      {parsedCommand.symbol}
-                    </span>
-                    
-                    {parsedCommand.quantity && (
-                      <span className="text-gray-600 text-sm">
-                        {parsedCommand.quantity} shares
-                      </span>
-                    )}
-                    
-                    {parsedCommand.amount && (
-                      <span className="text-gray-600 flex items-center text-sm">
-                        <DollarSignIcon className="w-3 h-3 mr-1" />
-                        {formatCurrency(parsedCommand.amount)}
-                      </span>
-                    )}
-                    
-                    <span className={`px-2 py-1 rounded text-xs ${
-                      parsedCommand.orderType === 'market' 
-                        ? 'bg-blue-100 text-blue-800' 
-                        : 'bg-purple-100 text-purple-800'
-                    }`}>
-                      {parsedCommand.orderType}
-                    </span>
-                  </div>
-
-                  {parsedCommand.errors && parsedCommand.errors.length > 0 && (
-                    <div className="space-y-1">
-                      {parsedCommand.errors.map((error, index) => (
-                        <p key={index} className="text-sm text-red-700 flex items-center">
-                          <XCircleIcon className="w-4 h-4 mr-2 flex-shrink-0" />
-                          {error}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-
-                  {parsedCommand.warnings && parsedCommand.warnings.length > 0 && (
-                    <div className="space-y-1">
-                      {parsedCommand.warnings.map((warning, index) => (
-                        <p key={index} className="text-sm text-amber-700 flex items-center">
-                          <AlertTriangleIcon className="w-4 h-4 mr-2 flex-shrink-0" />
-                          {warning}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Confirmation UI */}
-                  {showConfirmation && parsedCommand.isValid && (
-                    <div className="mt-3 lg:mt-4 pt-3 lg:pt-4 border-t border-green-200 confirmation-slide-in">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3 lg:mb-4 space-y-2 sm:space-y-0">
-                        <p className="text-sm font-medium text-gray-900">
-                          Are you sure you want to execute this trade?
-                        </p>
-                        <div className="flex items-center gap-1 text-xs text-gray-500 hidden sm:flex">
-                          <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-700 font-mono">Y</kbd>
-                          <span>/</span>
-                          <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-700 font-mono">N</kbd>
-                        </div>
-                      </div>
-                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 lg:gap-3">
-                        <button
-                          onClick={handleConfirmTrade}
-                          disabled={isLoading}
-                          className="group relative inline-flex items-center justify-center px-4 lg:px-6 py-2.5 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:scale-105 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 text-sm lg:text-base"
-                        >
-                          <div className="absolute inset-0 bg-green-400 rounded-lg opacity-0 group-hover:opacity-20 transition-opacity duration-200"></div>
-                          {isLoading ? (
-                            <LoaderIcon className="w-4 h-4 mr-2 animate-spin" />
-                          ) : (
-                            <CheckIcon className="w-4 h-4 mr-2" />
-                          )}
-                          <span>{isLoading ? 'Executing...' : 'Yes, Execute Trade'}</span>
-                        </button>
-                        
-                        <button
-                          onClick={handleCancelTrade}
-                          disabled={isLoading}
-                          className="group relative inline-flex items-center justify-center px-4 lg:px-6 py-2.5 bg-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:scale-105 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 text-sm lg:text-base"
-                        >
-                          <div className="absolute inset-0 bg-gray-400 rounded-lg opacity-0 group-hover:opacity-10 transition-opacity duration-200"></div>
-                          <XIcon className="w-4 h-4 mr-2" />
-                          <span>No, Cancel</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Hedge Recommendation Display - Integrated */}
-          {hedgeRecommendation && showProcessingContainer && (
-            <div className="mt-4 p-4 rounded-xl border bg-blue-50 border-blue-200 slide-up-fade-in">
-              <div className="flex items-start space-x-3">
-                <ShieldIcon className="w-5 h-5 text-blue-600 mt-0.5" />
-                <div className="flex-1 space-y-3">
-                  <h3 className="font-medium text-blue-900">Hedge Strategy Recommendation</h3>
-                  <p className="text-sm text-blue-800">{hedgeRecommendation.strategy}</p>
-                  
-                  <div className="space-y-2">
-                    <h4 className="text-sm font-medium text-blue-900">Recommended Instruments:</h4>
-                    {hedgeRecommendation.instruments.map((instrument, idx) => (
-                      <div key={idx} className="bg-white/60 p-3 rounded-lg text-sm">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-medium">
-                            {instrument.action.toUpperCase()} {instrument.quantity} {instrument.symbol}
-                          </span>
-                        </div>
-                        <p className="text-blue-700 text-xs">{instrument.reasoning}</p>
-                      </div>
-                    ))}
-                  </div>
-                  
-                  <div className="bg-white/60 p-3 rounded-lg text-sm space-y-1">
-                    <div className="flex justify-between">
-                      <span>Estimated Cost:</span>
-                      <span className="font-medium">{formatCurrency(hedgeRecommendation.costEstimate)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Risk Reduction:</span>
-                      <span className="font-medium">{hedgeRecommendation.riskReduction}%</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Timeline:</span>
-                      <span className="font-medium">{hedgeRecommendation.timeline}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="bg-white/60 p-3 rounded-lg">
-                    <h4 className="text-sm font-medium text-blue-900 mb-2">Exit Conditions:</h4>
-                    <ul className="space-y-1">
-                      {hedgeRecommendation.exitConditions.map((condition, idx) => (
-                        <li key={idx} className="text-sm text-blue-800 flex items-start">
-                          <span className="text-blue-500 mr-2">•</span>
-                          {condition}
-                        </li>
-                      ))}
+            <div className="flex items-center space-x-2">
+              <div className="group relative">
+                <button className="p-2 hover:bg-gray-100 rounded-lg transition-all duration-200">
+                  <InfoIcon className="w-4 h-4 text-gray-400 group-hover:text-gray-600" />
+                </button>
+                <div className="tooltip absolute right-0 top-full mt-2 w-64 opacity-0 group-hover:opacity-100 pointer-events-none">
+                  <div className="bg-gray-900 text-white text-xs rounded-lg p-3">
+                    <p className="font-medium mb-1">Quick Examples:</p>
+                    <ul className="space-y-1 text-gray-300">
+                      <li>• "Buy $1000 of AAPL"</li>
+                      <li>• "What is Bridgewater's 13F?"</li>
+                      <li>• "How to hedge my TSLA position?"</li>
+                      <li>• "Analyze NVDA market sentiment"</li>
                     </ul>
                   </div>
                 </div>
               </div>
             </div>
-          )}
+          </div>
 
-          {/* Market Analysis Display - Integrated */}
-          {marketAnalysis && marketAnalysis.length > 0 && showProcessingContainer && (
-            <div className="mt-4 p-4 rounded-xl border bg-purple-50 border-purple-200 slide-up-fade-in">
-              <div className="flex items-start space-x-3">
-                <BarChart3Icon className="w-5 h-5 text-purple-600 mt-0.5" />
-                <div className="flex-1 space-y-4">
-                  <h3 className="font-medium text-purple-900">Market Analysis</h3>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="relative group">
+              <div className="absolute inset-0 bg-gradient-to-r from-gray-100 to-gray-200 rounded-xl opacity-0 group-focus-within:opacity-100 blur-xl transition-all duration-500" />
+              <div className="relative">
+                <Input
+                  ref={inputRef}
+                  value={command}
+                  onChange={(e) => setCommand(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder='Try "Buy $5000 of AAPL" or "Show me Warren Buffett&apos;s portfolio"'
+                  className="brokerage-input w-full px-6 py-4 pr-14 text-base font-medium"
+                  disabled={isLoading}
+                />
+                
+                {/* Modern loading indicator */}
+                {isLoading && !showProcessingContainer && (
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-3">
+                    <div className="flex space-x-1">
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                    {loadingMessage && (
+                      <span className="text-sm text-gray-500 font-medium animate-pulse">{loadingMessage}</span>
+                    )}
+                  </div>
+                )}
+                
+                {/* Modern send button */}
+                {!isLoading && command.trim() && (
+                  <button
+                    type="submit"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 bg-gray-900 hover:bg-gray-800 rounded-lg transition-all duration-200 hover:scale-105 group"
+                  >
+                    <SendIcon className="w-4 h-4 text-white group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Single Line Processing Status */}
+            {showProcessingContainer && (
+              <div className="glass-card p-4 relative overflow-hidden scale-in">
+                <div className="flex items-center space-x-3">
+                  <div className="flex-shrink-0">
+                    <div className={`p-2 rounded-lg transition-all duration-300 ${
+                      requestType === 'trade' ? 'bg-gray-900' :
+                      requestType === 'hedge' ? 'bg-blue-600' :
+                      requestType === 'analysis' ? 'bg-purple-600' :
+                      requestType === 'recommendation' ? 'bg-amber-600' :
+                      'bg-gray-600'
+                    }`}>
+                      {requestType === 'trade' && <RocketIcon className="w-4 h-4 text-white" />}
+                      {requestType === 'hedge' && <ShieldCheckIcon className="w-4 h-4 text-white" />}
+                      {requestType === 'analysis' && <BrainCircuitIcon className="w-4 h-4 text-white" />}
+                      {requestType === 'recommendation' && <LightbulbIcon className="w-4 h-4 text-white" />}
+                    </div>
+                  </div>
                   
-                  {marketAnalysis.map((analysis, idx) => (
-                    <div key={idx} className="bg-white/60 p-4 rounded-lg space-y-3">
-                      <div className="flex items-start justify-between">
-                        <h4 className="font-medium text-purple-900">{analysis.symbol}</h4>
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          analysis.sentiment === 'bullish' ? 'bg-green-100 text-green-800' :
-                          analysis.sentiment === 'bearish' ? 'bg-red-100 text-red-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {analysis.sentiment.toUpperCase()}
-                        </span>
-                      </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm font-medium text-gray-900">
+                        {currentStep >= 0 && currentStep < processingSteps.length 
+                          ? processingSteps[currentStep].label 
+                          : 'Processing...'}
+                      </span>
                       
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:gap-4 text-sm">
-                        <div>
-                          <span className="text-purple-700">Confidence:</span>
-                          <span className="font-medium ml-1">{analysis.confidence}%</span>
-                        </div>
-                        <div>
-                          <span className="text-purple-700">Price Target:</span>
-                          <span className="font-medium ml-1">{formatCurrency(analysis.priceTarget)}</span>
-                        </div>
-                      </div>
-                      
-                      {analysis.riskFactors.length > 0 && (
-                        <div>
-                          <h5 className="text-sm font-medium text-red-700 mb-1">Risk Factors:</h5>
-                          <ul className="space-y-1">
-                            {analysis.riskFactors.map((risk: string, rIdx: number) => (
-                              <li key={rIdx} className="text-sm text-purple-800 flex items-start">
-                                <span className="text-red-500 mr-2">•</span>
-                                {risk}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {analysis.opportunities.length > 0 && (
-                        <div>
-                          <h5 className="text-sm font-medium text-green-700 mb-1">Opportunities:</h5>
-                          <ul className="space-y-1">
-                            {analysis.opportunities.map((opp: string, oIdx: number) => (
-                              <li key={oIdx} className="text-sm text-purple-800 flex items-start">
-                                <span className="text-green-500 mr-2">•</span>
-                                {opp}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      <div className="pt-2 border-t border-purple-200">
-                        <p className="text-sm text-purple-900">
-                          <span className="font-medium">Recommendation:</span> {analysis.recommendation.toUpperCase()}
-                        </p>
-                        <p className="text-sm text-purple-800 mt-1">{analysis.reasoning}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 13F Portfolio Display - Integrated */}
-          {thirteenFPortfolio && showProcessingContainer && (
-            <div className="mt-4 p-4 rounded-xl border bg-indigo-50 border-indigo-200 slide-up-fade-in">
-              <div className="flex items-start space-x-3">
-                <BarChart3Icon className="w-5 h-5 text-indigo-600 mt-0.5" />
-                <div className="flex-1 space-y-4">
-                  <div>
-                    <h3 className="font-medium text-indigo-900">{thirteenFPortfolio.institution} 13F Holdings</h3>
-                    <p className="text-sm text-indigo-800 mt-1">
-                      Filing Date: {new Date(thirteenFPortfolio.filingDate).toLocaleDateString()} | 
-                      Quarter End: {new Date(thirteenFPortfolio.quarterEndDate).toLocaleDateString()}
-                    </p>
-                    <p className="text-sm text-indigo-800">
-                      Total Portfolio Value: {formatCurrency(thirteenFPortfolio.totalValue)}
-                    </p>
-                  </div>
-                  
-                  <div className="bg-white/60 p-4 rounded-lg">
-                    <h4 className="text-sm font-medium text-indigo-900 mb-3">Top Holdings (&gt;0.5%)</h4>
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {thirteenFPortfolio.holdings
-                        .filter(h => h.percentOfPortfolio >= 0.5)
-                        .slice(0, 15)
-                        .map((holding, idx) => (
-                          <div key={holding.symbol} className="flex items-center justify-between p-2 bg-white/80 rounded text-sm">
-                            <div className="flex items-center space-x-3">
-                              <span className="w-6 text-xs text-gray-500">#{idx + 1}</span>
-                              <div>
-                                <span className="font-medium text-indigo-900">{holding.symbol}</span>
-                                <p className="text-xs text-indigo-700">{holding.companyName}</p>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <p className="font-medium text-indigo-900">{holding.percentOfPortfolio.toFixed(1)}%</p>
-                              <p className="text-xs text-indigo-700">{formatCurrency(holding.marketValue)}</p>
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                  
-                  {showInvestmentInput && (
-                    <div className="bg-white/60 p-4 rounded-lg space-y-3">
-                      <h4 className="text-sm font-medium text-indigo-900">
-                        Would you like to invest in a weighted spread of this portfolio?
-                      </h4>
-                      <div className="flex items-center space-x-3">
-                        <Input
-                          type="number"
-                          placeholder="Investment amount (e.g., 10000)"
-                          value={investmentAmount}
-                          onChange={(e) => setInvestmentAmount(e.target.value)}
-                          className="flex-1"
-                          disabled={isLoading}
-                        />
-                        <button
-                          onClick={handleInvestmentSubmit}
-                          disabled={isLoading || !investmentAmount}
-                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                        >
-                          {isLoading ? 'Investing...' : 'Invest'}
-                        </button>
-                      </div>
-                      <p className="text-xs text-indigo-700">
-                        This will create a weighted portfolio spread based on the institutional holdings.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 13F Investment Results Display */}
-          {thirteenFInvestment && showProcessingContainer && (
-            <div className="mt-4 p-4 rounded-xl border bg-green-50 border-green-200 slide-up-fade-in">
-              <div className="flex items-start space-x-3">
-                <CheckCircleIcon className="w-5 h-5 text-green-600 mt-0.5" />
-                <div className="flex-1 space-y-3">
-                  <div>
-                    <h3 className="font-medium text-green-900">Portfolio Spread Investment Executed</h3>
-                    <p className="text-sm text-green-800">
-                      Basket: {thirteenFInvestment.basket.name}
-                    </p>
-                    <p className="text-sm text-green-800">
-                      Total Investment: {formatCurrency(thirteenFInvestment.basket.totalInvestment)}
-                    </p>
-                  </div>
-                  
-                  <div className="bg-white/60 p-3 rounded-lg">
-                    <h4 className="text-sm font-medium text-green-900 mb-2">Trade Results:</h4>
-                    <div className="space-y-2 max-h-48 overflow-y-auto">
-                      {thirteenFInvestment.tradeResults.map((result, idx) => (
-                        <div key={idx} className="flex items-center justify-between text-xs">
-                          <div>
-                            <span className="font-medium">{result.symbol}</span>
-                            {result.targetValue && (
-                              <span className="text-gray-600 ml-2">
-                                ${result.targetValue.toFixed(2)}
-                              </span>
-                            )}
-                          </div>
-                          <span className={result.success ? 'text-green-700' : 'text-red-700'}>
-                            {result.success ? '✓ Executed' : '✗ Failed'}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  <div className="bg-white/60 p-3 rounded-lg">
-                    <p className="text-sm text-green-800">
-                      Your {thirteenFInvestment.basket.institution} portfolio spread has been created and is now 
-                      available in your portfolio dashboard.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* CopyTrade Portfolio Display */}
-          {copyTradeData && showProcessingContainer && (
-            <div className="mt-4 p-4 rounded-xl border bg-blue-50 border-blue-200 slide-up-fade-in">
-              <div className="flex items-start space-x-3">
-                <UsersIcon className="w-5 h-5 text-blue-600 mt-0.5" />
-                <div className="flex-1 space-y-3">
-                  <div>
-                    <h3 className="font-medium text-blue-900">CopyTrade Portfolio: {copyTradeData.politician}</h3>
-                    <p className="text-sm text-blue-800">
-                      {copyTradeData.totalTrades} trades found • Last updated: {new Date(copyTradeData.lastUpdated).toLocaleDateString()}
-                    </p>
-                  </div>
-                  
-                  <div className="bg-white/60 p-3 rounded-lg">
-                    <h4 className="text-sm font-medium text-blue-900 mb-2">Weighted Portfolio Spread:</h4>
-                    <div className="space-y-2 max-h-48 overflow-y-auto">
-                      {copyTradeData.weightedSpread.map((holding: any, idx: number) => (
-                        <div key={idx} className="flex items-center justify-between text-xs">
-                          <div>
-                            <span className="font-medium">{holding.symbol}</span>
-                            <span className="text-gray-600 ml-2">{holding.companyName}</span>
-                          </div>
-                          <div className="text-right">
-                            <div className="font-medium">{(holding.weight * 100).toFixed(1)}%</div>
-                            <div className="text-gray-600">{holding.trades} trades</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  {showInvestmentInput && (
-                    <div className="bg-white/60 p-4 rounded-lg space-y-3">
-                      <h4 className="text-sm font-medium text-blue-900">
-                        Would you like to invest in a weighted spread of this copytrade portfolio?
-                      </h4>
-                      <div className="flex items-center space-x-3">
-                        <Input
-                          type="number"
-                          placeholder="Investment amount (e.g., 10000)"
-                          value={investmentAmount}
-                          onChange={(e) => setInvestmentAmount(e.target.value)}
-                          className="flex-1"
-                          disabled={isLoading}
-                        />
-                        <button
-                          onClick={handleInvestmentSubmit}
-                          disabled={isLoading || !investmentAmount}
-                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                        >
-                          {isLoading ? 'Investing...' : 'Invest'}
-                        </button>
-                      </div>
-                      <p className="text-xs text-blue-700">
-                        This will create a weighted portfolio spread based on {copyTradeData.politician}'s trading activity.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* CopyTrade Investment Results Display */}
-          {copyTradeInvestment && showProcessingContainer && (
-            <div className="mt-4 p-4 rounded-xl border bg-green-50 border-green-200 slide-up-fade-in">
-              <div className="flex items-start space-x-3">
-                <CheckCircleIcon className="w-5 h-5 text-green-600 mt-0.5" />
-                <div className="flex-1 space-y-3">
-                  <div>
-                    <h3 className="font-medium text-green-900">CopyTrade Investment Executed</h3>
-                    <p className="text-sm text-green-800">
-                      Politician: {copyTradeInvestment.politician}
-                    </p>
-                    <p className="text-sm text-green-800">
-                      Total Investment: {formatCurrency(copyTradeInvestment.totalInvestment)}
-                    </p>
-                  </div>
-                  
-                  <div className="bg-white/60 p-3 rounded-lg">
-                    <h4 className="text-sm font-medium text-green-900 mb-2">Holdings:</h4>
-                    <div className="space-y-2 max-h-48 overflow-y-auto">
-                      {copyTradeInvestment.holdings?.map((holding: any, idx: number) => (
-                        <div key={idx} className="flex items-center justify-between text-xs">
-                          <div>
-                            <span className="font-medium">{holding.symbol}</span>
-                            <span className="text-gray-600 ml-2">
-                              {holding.shares} shares
-                            </span>
-                          </div>
-                          <span className="text-green-700">
-                            {formatCurrency(holding.value)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  <div className="bg-white/60 p-3 rounded-lg">
-                    <p className="text-sm text-green-800">
-                      Your {copyTradeInvestment.politician} copytrade portfolio has been created and is now 
-                      available in your portfolio dashboard.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Trade Recommendations Display - Integrated */}
-          {tradeRecommendations && showProcessingContainer && (
-            <div className="mt-4 p-4 rounded-xl border bg-amber-50 border-amber-200 slide-up-fade-in">
-              <div className="flex items-start space-x-3">
-                <LightbulbIcon className="w-5 h-5 text-amber-600 mt-0.5" />
-                <div className="flex-1 space-y-3">
-                  <h3 className="font-medium text-amber-900">Trade Recommendations</h3>
-                  
-                  {tradeRecommendations.recommendations && (
-                    <div className="space-y-3">
-                      {tradeRecommendations.recommendations.map((rec: any, idx: number) => (
-                        <div key={idx} className="bg-white/60 p-3 rounded-lg space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="font-medium text-amber-900">
-                              {rec.action.toUpperCase()} {rec.symbol}
-                            </span>
-                            <span className="text-sm text-amber-800">{rec.allocation}</span>
-                          </div>
-                          <p className="text-sm text-amber-800">{rec.rationale}</p>
-                          {rec.targetPrice && (
-                            <div className="text-xs text-amber-700">
-                              Target: {formatCurrency(rec.targetPrice)} | Stop Loss: {formatCurrency(rec.stopLoss || 0)}
+                      {currentStep >= 0 && currentStep < processingSteps.length && (
+                        <div className="flex items-center space-x-1">
+                          {processingSteps[currentStep].status === 'processing' && (
+                            <div className="flex space-x-1">
+                              <div className="w-1 h-1 bg-green-600 rounded-full animate-bounce" />
+                              <div className="w-1 h-1 bg-green-600 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                              <div className="w-1 h-1 bg-green-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
                             </div>
                           )}
+                          {processingSteps[currentStep].status === 'complete' && (
+                            <CheckCircleIcon className="w-4 h-4 text-green-600" />
+                          )}
+                          {processingSteps[currentStep].status === 'error' && (
+                            <XCircleIcon className="w-4 h-4 text-red-500" />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {processingSteps[currentStep]?.message && (
+                      <p className="text-xs text-gray-500 mt-1 truncate">
+                        {processingSteps[currentStep].message}
+                      </p>
+                    )}
+                  </div>
+                  
+                  <div className="text-xs text-gray-400 font-medium">
+                    {currentStep + 1}/{processingSteps.length}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modern Command Preview with enhanced styling */}
+            {parsedCommand && showProcessingContainer && (
+              <div className={`glass-card p-6 transition-all duration-300 slide-in-bottom ${
+                parsedCommand.isValid 
+                  ? 'border-green-200 bg-green-50/50' 
+                  : 'border-red-200 bg-red-50/50'
+              }`}>
+                <div className="flex items-start space-x-4">
+                  <div className={`p-2 rounded-lg ${
+                    parsedCommand.isValid ? 'bg-green-100' : 'bg-red-100'
+                  }`}>
+                    {parsedCommand.isValid ? (
+                      <CheckCircleIcon className="w-5 h-5 text-green-600" />
+                    ) : (
+                      <XCircleIcon className="w-5 h-5 text-red-600" />
+                    )}
+                  </div>
+                  
+                  <div className="flex-1 space-y-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className={`badge ${
+                        parsedCommand.action === 'buy' 
+                          ? 'badge-success' 
+                          : 'badge-error'
+                      } px-3 py-1.5 font-medium`}>
+                        {parsedCommand.action === 'buy' ? (
+                          <TrendingUpIcon className="w-3 h-3 mr-1.5" />
+                        ) : (
+                          <TrendingDownIcon className="w-3 h-3 mr-1.5" />
+                        )}
+                        {parsedCommand.action.toUpperCase()}
+                      </span>
+                      
+                      <span className="font-semibold text-gray-900 text-lg">
+                        {parsedCommand.symbol}
+                      </span>
+                      
+                      {parsedCommand.quantity && (
+                        <span className="text-gray-600 font-medium">
+                          {parsedCommand.quantity} shares
+                        </span>
+                      )}
+                      
+                      {parsedCommand.amount && (
+                        <span className="text-gray-600 flex items-center font-medium">
+                          <DollarSignIcon className="w-4 h-4 mr-1" />
+                          {formatCurrency(parsedCommand.amount)}
+                        </span>
+                      )}
+                      
+                      <span className={`badge ${
+                        parsedCommand.orderType === 'market' 
+                          ? 'badge-info' 
+                          : 'bg-purple-100 text-purple-800'
+                      } px-3 py-1`}>
+                        {parsedCommand.orderType.toUpperCase()}
+                      </span>
+                    </div>
+
+                    {parsedCommand.errors && parsedCommand.errors.length > 0 && (
+                      <div className="space-y-2">
+                        {parsedCommand.errors.map((error, index) => (
+                          <div key={index} className="flex items-start space-x-2 p-3 bg-red-100/50 rounded-lg">
+                            <XCircleIcon className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                            <p className="text-sm text-red-700 font-medium">{error}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {parsedCommand.warnings && parsedCommand.warnings.length > 0 && (
+                      <div className="space-y-2">
+                        {parsedCommand.warnings.map((warning, index) => (
+                          <div key={index} className="flex items-start space-x-2 p-3 bg-amber-100/50 rounded-lg">
+                            <AlertTriangleIcon className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                            <p className="text-sm text-amber-700 font-medium">{warning}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Modern Confirmation UI */}
+                    {showConfirmation && parsedCommand.isValid && (
+                      <div className={`mt-4 pt-4 border-t border-green-200 space-y-4 slide-in-bottom ${isLoading ? 'trade-success' : ''}`}>
+                        <div className="flex items-center justify-between">
+                          <p className="text-base font-semibold text-gray-900">
+                            Confirm Trade Execution
+                          </p>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-gray-500">Quick confirm:</span>
+                            <kbd className="px-2 py-1 bg-gray-100 border border-gray-200 rounded text-gray-700 font-mono">Y</kbd>
+                            <span className="text-gray-400">/</span>
+                            <kbd className="px-2 py-1 bg-gray-100 border border-gray-200 rounded text-gray-700 font-mono">N</kbd>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={handleConfirmTrade}
+                            disabled={isLoading}
+                            className="brokerage-button flex-1 flex items-center justify-center"
+                          >
+                            {isLoading ? (
+                              <>
+                                <div className="spinner mr-2" />
+                                <span>Executing Trade...</span>
+                              </>
+                            ) : (
+                              <>
+                                <CheckIcon className="w-4 h-4 mr-2" />
+                                <span>Execute Trade</span>
+                              </>
+                            )}
+                          </button>
+                          
+                          <button
+                            onClick={handleCancelTrade}
+                            disabled={isLoading}
+                            className="brokerage-button-secondary flex items-center justify-center px-6"
+                          >
+                            <XIcon className="w-4 h-4 mr-2" />
+                            <span>Cancel</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Enhanced Result Displays with modern styling */}
+            {/* Hedge Recommendation Display */}
+            {hedgeRecommendation && showProcessingContainer && (
+              <div className="glass-card p-6 border-blue-200 bg-blue-50/30 slide-in-bottom">
+                <div className="flex items-start space-x-4">
+                  <div className="p-3 bg-blue-600 rounded-xl">
+                    <ShieldIcon className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="flex-1 space-y-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-1">Hedge Strategy Recommendation</h3>
+                      <p className="text-gray-700">{hedgeRecommendation.strategy}</p>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">Recommended Instruments</h4>
+                      {hedgeRecommendation.instruments.map((instrument, idx) => (
+                        <div key={idx} className="brokerage-card p-4 hover-lift">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-semibold text-gray-900">
+                              {instrument.action.toUpperCase()} {instrument.quantity} {instrument.symbol}
+                            </span>
+                            <ZapIcon className="w-4 h-4 text-blue-600" />
+                          </div>
+                          <p className="text-sm text-gray-600">{instrument.reasoning}</p>
                         </div>
                       ))}
                     </div>
-                  )}
-                  
-                  {tradeRecommendations.strategy && (
-                    <div className="bg-white/60 p-3 rounded-lg">
-                      <h4 className="text-sm font-medium text-amber-900 mb-1">Strategy:</h4>
-                      <p className="text-sm text-amber-800">{tradeRecommendations.strategy}</p>
+                    
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="brokerage-card p-4 text-center">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Est. Cost</p>
+                        <p className="text-lg font-semibold text-gray-900">{formatCurrency(hedgeRecommendation.costEstimate)}</p>
+                      </div>
+                      <div className="brokerage-card p-4 text-center">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Risk Reduction</p>
+                        <p className="text-lg font-semibold text-green-600">{hedgeRecommendation.riskReduction}%</p>
+                      </div>
+                      <div className="brokerage-card p-4 text-center">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Timeline</p>
+                        <p className="text-lg font-semibold text-gray-900">{hedgeRecommendation.timeline}</p>
+                      </div>
                     </div>
-                  )}
-                  
-                  {tradeRecommendations.risks && (
-                    <div>
-                      <h4 className="text-sm font-medium text-red-700 mb-1">Key Risks:</h4>
-                      <ul className="space-y-1">
-                        {tradeRecommendations.risks.map((risk: string, idx: number) => (
-                          <li key={idx} className="text-sm text-amber-800 flex items-start">
-                            <span className="text-red-500 mr-2">•</span>
-                            {risk}
+                    
+                    <div className="brokerage-card p-4">
+                      <h4 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wider">Exit Conditions</h4>
+                      <ul className="space-y-2">
+                        {hedgeRecommendation.exitConditions.map((condition, idx) => (
+                          <li key={idx} className="flex items-start text-sm text-gray-700">
+                            <span className="text-blue-600 mr-2 mt-0.5">•</span>
+                            {condition}
                           </li>
                         ))}
                       </ul>
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </form>
+            )}
+
+            {/* Market Analysis Display */}
+            {marketAnalysis && marketAnalysis.length > 0 && showProcessingContainer && (
+              <div className="glass-card p-6 border-purple-200 bg-purple-50/30 slide-in-bottom">
+                <div className="flex items-start space-x-4">
+                  <div className="p-3 bg-purple-600 rounded-xl">
+                    <BarChart3Icon className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="flex-1 space-y-4">
+                    <h3 className="text-lg font-semibold text-gray-900">Market Analysis Results</h3>
+                    
+                    <div className="grid gap-4">
+                      {marketAnalysis.map((analysis, idx) => (
+                        <div key={idx} className="brokerage-card p-6 hover-lift">
+                          <div className="flex items-start justify-between mb-4">
+                            <div>
+                              <h4 className="text-xl font-semibold text-gray-900">{analysis.symbol}</h4>
+                              <p className="text-sm text-gray-600 mt-1">Market Analysis Report</p>
+                            </div>
+                            <span className={`badge ${
+                              analysis.sentiment === 'bullish' ? 'badge-success' :
+                              analysis.sentiment === 'bearish' ? 'badge-error' :
+                              'bg-gray-100 text-gray-800'
+                            } px-4 py-2 font-semibold`}>
+                              {analysis.sentiment.toUpperCase()}
+                            </span>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4 mb-4">
+                            <div className="metric-card p-4">
+                              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Confidence</p>
+                              <div className="flex items-center">
+                                <div className="flex-1 bg-gray-200 rounded-full h-2 mr-3">
+                                  <div 
+                                    className="bg-purple-600 h-2 rounded-full transition-all duration-1000"
+                                    style={{ width: `${analysis.confidence}%` }}
+                                  />
+                                </div>
+                                <span className="font-semibold text-gray-900">{analysis.confidence}%</span>
+                              </div>
+                            </div>
+                            <div className="metric-card p-4">
+                              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Price Target</p>
+                              <p className="text-lg font-semibold text-gray-900">{formatCurrency(analysis.priceTarget)}</p>
+                            </div>
+                          </div>
+                          
+                          {(analysis.riskFactors.length > 0 || analysis.opportunities.length > 0) && (
+                            <div className="grid md:grid-cols-2 gap-4 mb-4">
+                              {analysis.riskFactors.length > 0 && (
+                                <div className="bg-red-50 rounded-lg p-4">
+                                  <h5 className="text-sm font-semibold text-red-900 mb-2 flex items-center">
+                                    <AlertTriangleIcon className="w-4 h-4 mr-2" />
+                                    Risk Factors
+                                  </h5>
+                                  <ul className="space-y-1">
+                                    {analysis.riskFactors.map((risk: string, rIdx: number) => (
+                                      <li key={rIdx} className="text-sm text-red-800 flex items-start">
+                                        <span className="text-red-500 mr-2 mt-0.5">•</span>
+                                        {risk}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              
+                              {analysis.opportunities.length > 0 && (
+                                <div className="bg-green-50 rounded-lg p-4">
+                                  <h5 className="text-sm font-semibold text-green-900 mb-2 flex items-center">
+                                    <TrendingUpIcon className="w-4 h-4 mr-2" />
+                                    Opportunities
+                                  </h5>
+                                  <ul className="space-y-1">
+                                    {analysis.opportunities.map((opp: string, oIdx: number) => (
+                                      <li key={oIdx} className="text-sm text-green-800 flex items-start">
+                                        <span className="text-green-500 mr-2 mt-0.5">•</span>
+                                        {opp}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          
+                          <div className="pt-4 border-t border-gray-200">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium text-gray-500 uppercase tracking-wider">Recommendation</p>
+                                <p className="text-lg font-semibold text-gray-900">{analysis.recommendation.toUpperCase()}</p>
+                              </div>
+                              <button className="brokerage-button-secondary px-4 py-2 text-sm">
+                                View Details
+                              </button>
+                            </div>
+                            <p className="text-sm text-gray-600 mt-2">{analysis.reasoning}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 13F Portfolio Display - Integrated */}
+            {thirteenFPortfolio && showProcessingContainer && (
+              <div className="glass-card p-6 border-indigo-200 bg-indigo-50/30 slide-in-bottom">
+                <div className="flex items-start space-x-4">
+                  <div className="p-3 bg-indigo-600 rounded-xl">
+                    <BarChart3Icon className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="flex-1 space-y-4">
+                    <div>
+                      <h3 className="font-medium text-indigo-900">{thirteenFPortfolio.institution} 13F Holdings</h3>
+                      <p className="text-sm text-indigo-800 mt-1">
+                        Filing Date: {new Date(thirteenFPortfolio.filingDate).toLocaleDateString()} | 
+                        Quarter End: {new Date(thirteenFPortfolio.quarterEndDate).toLocaleDateString()}
+                      </p>
+                      <p className="text-sm text-indigo-800">
+                        Total Portfolio Value: {formatCurrency(thirteenFPortfolio.totalValue)}
+                      </p>
+                    </div>
+                    
+                    <div className="bg-white/60 p-4 rounded-lg">
+                      <h4 className="text-sm font-medium text-indigo-900 mb-3">Top Holdings (&gt;0.5%)</h4>
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {thirteenFPortfolio.holdings
+                          .filter(h => h.percentOfPortfolio >= 0.5)
+                          .slice(0, 15)
+                          .map((holding, idx) => (
+                            <div key={holding.symbol} className="flex items-center justify-between p-2 bg-white/80 rounded text-sm">
+                              <div className="flex items-center space-x-3">
+                                <span className="w-6 text-xs text-gray-500">#{idx + 1}</span>
+                                <div>
+                                  <span className="font-medium text-indigo-900">{holding.symbol}</span>
+                                  <p className="text-xs text-indigo-700">{holding.companyName}</p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-medium text-indigo-900">{holding.percentOfPortfolio.toFixed(1)}%</p>
+                                <p className="text-xs text-indigo-700">{formatCurrency(holding.marketValue)}</p>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                    
+                    {showInvestmentInput && (
+                      <div className="bg-white/60 p-4 rounded-lg space-y-3">
+                        <h4 className="text-sm font-medium text-indigo-900">
+                          Would you like to invest in a weighted spread of this portfolio?
+                        </h4>
+                        <div className="flex items-center space-x-3">
+                          <Input
+                            type="number"
+                            placeholder="Investment amount (e.g., 10000)"
+                            value={investmentAmount}
+                            onChange={(e) => setInvestmentAmount(e.target.value)}
+                            className="flex-1"
+                            disabled={isLoading}
+                          />
+                          <button
+                            onClick={handleInvestmentSubmit}
+                            disabled={isLoading || !investmentAmount}
+                            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                          >
+                            {isLoading ? 'Investing...' : 'Invest'}
+                          </button>
+                        </div>
+                        <p className="text-xs text-indigo-700">
+                          This will create a weighted portfolio spread based on the institutional holdings.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 13F Investment Results Display */}
+            {thirteenFInvestment && showProcessingContainer && (
+              <div className="glass-card p-6 border-green-200 bg-green-50/30 slide-in-bottom">
+                <div className="flex items-start space-x-4">
+                  <div className="p-3 bg-green-600 rounded-xl">
+                    <CheckCircleIcon className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <h3 className="font-medium text-green-900">Portfolio Spread Investment Executed</h3>
+                      <p className="text-sm text-green-800">
+                        Basket: {thirteenFInvestment.basket.name}
+                      </p>
+                      <p className="text-sm text-green-800">
+                        Total Investment: {formatCurrency(thirteenFInvestment.basket.totalInvestment)}
+                      </p>
+                    </div>
+                    
+                    <div className="bg-white/60 p-3 rounded-lg">
+                      <h4 className="text-sm font-medium text-green-900 mb-2">Trade Results:</h4>
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {thirteenFInvestment.tradeResults.map((result, idx) => (
+                          <div key={idx} className="flex items-center justify-between text-xs">
+                            <div>
+                              <span className="font-medium">{result.symbol}</span>
+                              {result.targetValue && (
+                                <span className="text-gray-600 ml-2">
+                                  ${result.targetValue.toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                            <span className={result.success ? 'text-green-700' : 'text-red-700'}>
+                              {result.success ? '✓ Executed' : '✗ Failed'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <div className="bg-white/60 p-3 rounded-lg">
+                      <p className="text-sm text-green-800">
+                        Your {thirteenFInvestment.basket.institution} portfolio spread has been created and is now 
+                        available in your portfolio dashboard.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* CopyTrade Portfolio Display */}
+            {copyTradeData && showProcessingContainer && (
+              <div className="glass-card p-6 border-blue-200 bg-blue-50/30 slide-in-bottom">
+                <div className="flex items-start space-x-4">
+                  <div className="p-3 bg-blue-600 rounded-xl">
+                    <UsersIcon className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <h3 className="font-medium text-blue-900">CopyTrade Portfolio: {copyTradeData.politician}</h3>
+                      <p className="text-sm text-blue-800">
+                        {copyTradeData.totalTrades} trades found • Last updated: {new Date(copyTradeData.lastUpdated).toLocaleDateString()}
+                      </p>
+                    </div>
+                    
+                    <div className="bg-white/60 p-3 rounded-lg">
+                      <h4 className="text-sm font-medium text-blue-900 mb-2">Weighted Portfolio Spread:</h4>
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {copyTradeData.weightedSpread.map((holding: any, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between text-xs">
+                            <div>
+                              <span className="font-medium">{holding.symbol}</span>
+                              <span className="text-gray-600 ml-2">{holding.companyName}</span>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-medium">{(holding.weight * 100).toFixed(1)}%</div>
+                              <div className="text-gray-600">{holding.trades} trades</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {showInvestmentInput && (
+                      <div className="bg-white/60 p-4 rounded-lg space-y-3">
+                        <h4 className="text-sm font-medium text-blue-900">
+                          Would you like to invest in a weighted spread of this copytrade portfolio?
+                        </h4>
+                        <div className="flex items-center space-x-3">
+                          <Input
+                            type="number"
+                            placeholder="Investment amount (e.g., 10000)"
+                            value={investmentAmount}
+                            onChange={(e) => setInvestmentAmount(e.target.value)}
+                            className="flex-1"
+                            disabled={isLoading}
+                          />
+                          <button
+                            onClick={handleInvestmentSubmit}
+                            disabled={isLoading || !investmentAmount}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                          >
+                            {isLoading ? 'Investing...' : 'Invest'}
+                          </button>
+                        </div>
+                        <p className="text-xs text-blue-700">
+                          This will create a weighted portfolio spread based on {copyTradeData.politician}'s trading activity.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* CopyTrade Investment Results Display */}
+            {copyTradeInvestment && showProcessingContainer && (
+              <div className="glass-card p-6 border-green-200 bg-green-50/30 slide-in-bottom">
+                <div className="flex items-start space-x-4">
+                  <div className="p-3 bg-green-600 rounded-xl">
+                    <CheckCircleIcon className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <h3 className="font-medium text-green-900">CopyTrade Investment Executed</h3>
+                      <p className="text-sm text-green-800">
+                        Politician: {copyTradeInvestment.politician}
+                      </p>
+                      <p className="text-sm text-green-800">
+                        Total Investment: {formatCurrency(copyTradeInvestment.totalInvestment)}
+                      </p>
+                    </div>
+                    
+                    <div className="bg-white/60 p-3 rounded-lg">
+                      <h4 className="text-sm font-medium text-green-900 mb-2">Holdings:</h4>
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {copyTradeInvestment.holdings?.map((holding: any, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between text-xs">
+                            <div>
+                              <span className="font-medium">{holding.symbol}</span>
+                              <span className="text-gray-600 ml-2">
+                                {holding.shares} shares
+                              </span>
+                            </div>
+                            <span className="text-green-700">
+                              {formatCurrency(holding.value)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <div className="bg-white/60 p-3 rounded-lg">
+                      <p className="text-sm text-green-800">
+                        Your {copyTradeInvestment.politician} copytrade portfolio has been created and is now 
+                        available in your portfolio dashboard.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Trade Recommendations Display - Integrated */}
+            {tradeRecommendations && showProcessingContainer && (
+              <div className="glass-card p-6 border-amber-200 bg-amber-50/30 slide-in-bottom">
+                <div className="flex items-start space-x-4">
+                  <div className="p-3 bg-amber-600 rounded-xl">
+                    <LightbulbIcon className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="flex-1 space-y-3">
+                    <h3 className="font-medium text-amber-900">Trade Recommendations</h3>
+                    
+                    {tradeRecommendations.recommendations && (
+                      <div className="space-y-3">
+                        {tradeRecommendations.recommendations.map((rec: any, idx: number) => (
+                          <div key={idx} className="bg-white/60 p-3 rounded-lg space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium text-amber-900">
+                                {rec.action.toUpperCase()} {rec.symbol}
+                              </span>
+                              <span className="text-sm text-amber-800">{rec.allocation}</span>
+                            </div>
+                            <p className="text-sm text-amber-800">{rec.rationale}</p>
+                            {rec.targetPrice && (
+                              <div className="text-xs text-amber-700">
+                                Target: {formatCurrency(rec.targetPrice)} | Stop Loss: {formatCurrency(rec.stopLoss || 0)}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {tradeRecommendations.strategy && (
+                      <div className="bg-white/60 p-3 rounded-lg">
+                        <h4 className="text-sm font-medium text-amber-900 mb-1">Strategy:</h4>
+                        <p className="text-sm text-amber-800">{tradeRecommendations.strategy}</p>
+                      </div>
+                    )}
+                    
+                    {tradeRecommendations.risks && (
+                      <div>
+                        <h4 className="text-sm font-medium text-red-700 mb-1">Key Risks:</h4>
+                        <ul className="space-y-1">
+                          {tradeRecommendations.risks.map((risk: string, idx: number) => (
+                            <li key={idx} className="text-sm text-amber-800 flex items-start">
+                              <span className="text-red-500 mr-2">•</span>
+                              {risk}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+            
+          </form>
+        </div>
       </div>
 
-      {/* Trade History */}
+      {/* Modern Trade History */}
       {tradeHistory.length > 0 && (
-        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-            <span>Recent Activity</span>
-            <div className="ml-2 w-2 h-2 bg-green-500 rounded-full"></div>
-          </h3>
-          <div className="space-y-4 max-h-96 overflow-y-auto">
+        <div className="brokerage-card p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-semibold text-gray-900 flex items-center">
+              <span>Recent Activity</span>
+              <div className="ml-3 flex space-x-1">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+              </div>
+            </h3>
+            <button className="text-sm text-gray-500 hover:text-gray-700 font-medium transition-colors">
+              View All
+            </button>
+          </div>
+          
+          <div className="space-y-3 max-h-96 overflow-y-auto custom-scrollbar pr-2">
             {tradeHistory.map((trade, index) => (
               <div
                 key={index}
-                className={`p-4 rounded-xl border transition-all duration-200 ${
+                className={`p-4 rounded-lg border transition-all duration-300 hover-lift position-row-enter ${
                   trade.result.success 
-                    ? 'bg-green-50 border-green-200' 
-                    : 'bg-red-50 border-red-200'
+                    ? 'bg-green-50/50 border-green-200 hover:border-green-300' 
+                    : 'bg-red-50/50 border-red-200 hover:border-red-300'
                 }`}
+                style={{ animationDelay: `${index * 50}ms` }}
               >
-                <div className="flex items-start justify-between mb-2 flex-wrap gap-2">
-                  <div className="flex items-center space-x-2 min-w-0 flex-1">
-                    <div>
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start space-x-3 flex-1">
+                    <div className={`p-2 rounded-lg ${
+                      trade.result.success ? 'bg-green-100' : 'bg-red-100'
+                    }`}>
                       {trade.result.success ? (
-                        <CheckCircleIcon className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        <CheckCircleIcon className="w-4 h-4 text-green-600" />
                       ) : (
-                        <XCircleIcon className="w-4 h-4 text-red-600 flex-shrink-0" />
+                        <XCircleIcon className="w-4 h-4 text-red-600" />
                       )}
                     </div>
-                    <span className="font-medium text-gray-900 truncate">
-                      "{trade.command}"
-                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-gray-900 truncate">
+                        {trade.command}
+                      </p>
+                      <p className={`text-sm mt-1 ${
+                        trade.result.success ? 'text-green-700' : 'text-red-700'
+                      }`}>
+                        {trade.result.message}
+                      </p>
+                      {trade.result.order && (
+                        <p className="text-xs text-gray-500 mt-2 font-mono">
+                          Order ID: {trade.result.order.id}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <span className="text-xs text-gray-500 whitespace-nowrap">
-                    {trade.timestamp.toLocaleTimeString()}
-                  </span>
+                  <div className="text-right ml-4">
+                    <p className="text-xs text-gray-500 font-medium">
+                      {trade.timestamp.toLocaleTimeString()}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {trade.timestamp.toLocaleDateString()}
+                    </p>
+                  </div>
                 </div>
-                
-                <p className={`text-sm ${
-                  trade.result.success ? 'text-green-700' : 'text-red-700'
-                }`}>
-                  {trade.result.message}
-                </p>
-                
-                {trade.result.order && (
-                  <div className="mt-2 text-xs text-gray-600">
-                    Order ID: {trade.result.order.id}
-                  </div>
-                )}
               </div>
             ))}
           </div>

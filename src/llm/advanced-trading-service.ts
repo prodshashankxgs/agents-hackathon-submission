@@ -19,7 +19,7 @@ export class AdvancedTradingService {
   private anthropic: Anthropic;
   private basicService: ClaudeService;
   private intentCache = new Map<string, { intent: AdvancedTradeIntent; timestamp: number }>();
-  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  private readonly CACHE_TTL = 10 * 60 * 1000; // 10 minutes (increased for better performance)
 
   constructor() {
     this.anthropic = new Anthropic({
@@ -75,7 +75,7 @@ export class AdvancedTradingService {
   }
 
   /**
-   * Parse complex natural language trading requests with caching
+   * Parse complex natural language trading requests with direct LLM processing
    */
   async parseAdvancedIntent(userInput: string, accountInfo?: AccountInfo): Promise<AdvancedTradeIntent> {
     // Check cache first
@@ -86,100 +86,83 @@ export class AdvancedTradingService {
     }
 
     try {
-      // First, do a quick keyword check to avoid API calls for simple trades
-      const lowerInput = userInput.toLowerCase();
-      const isSimpleTrade = (lowerInput.includes('buy') || lowerInput.includes('sell')) &&
-                           !lowerInput.includes('hedge') &&
-                           !lowerInput.includes('analyze') &&
-                           !lowerInput.includes('recommend') &&
-                           !lowerInput.includes('should i');
-
-      if (isSimpleTrade) {
-        const tradeIntent = await this.basicService.parseTradeIntent(userInput);
-        const result = { ...tradeIntent, type: 'trade' as const };
-        this.intentCache.set(cacheKey, { intent: result, timestamp: Date.now() });
-        return result;
-      }
-
-      // For complex queries, use classification
-      const classificationPrompt = `Classify the following trading request into one of these categories:
-- "trade": Simple buy/sell orders
-- "hedge": Risk management and hedging strategies
-- "analysis": Market analysis requests
-- "recommendation": Trading advice and recommendations
-- "13f": Institutional holdings queries (13F filings, copying portfolios like Berkshire Hathaway)
-- "copytrade": Politician trading queries (Nancy Pelosi, Paul Pelosi, Dan Crenshaw, etc.)
-
-User request: "${userInput}"
-
-Respond with just the category name (trade, hedge, analysis, recommendation, 13f, or copytrade).`;
-
-      const classificationResponse = await this.anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 20,
-        temperature: 0,
-        messages: [
-          {
-            role: 'user',
-            content: classificationPrompt
-          }
-        ]
-      });
-
-      if (!classificationResponse.content || classificationResponse.content.length === 0) {
-        throw new LLMError('Empty classification response from Claude');
-      }
-
-      const content = classificationResponse.content[0];
-      if (!content || content.type !== 'text') {
-        throw new LLMError('Unexpected classification response type from Claude');
-      }
-
-      const classification = (content as { type: 'text'; text: string }).text.trim().toLowerCase();
-
-      // Route to appropriate parser based on classification
-      let result: AdvancedTradeIntent;
+      // Use direct LLM classification for best accuracy
+      const intentType = await this.classifyIntent(userInput);
       
-      switch (classification) {
-        case 'trade':
-          const tradeIntent = await this.basicService.parseTradeIntent(userInput);
-          result = { ...tradeIntent, type: 'trade' };
-          break;
-        
-        case 'hedge':
-          result = await this.parseHedgeIntent(userInput, accountInfo);
-          break;
-        
-        case 'analysis':
-          result = await this.parseAnalysisIntent(userInput);
-          break;
-        
-        case 'recommendation':
-          result = await this.parseRecommendationIntent(userInput);
-          break;
-        
-        case '13f':
-          result = await this.parse13FIntent(userInput);
-          break;
-        
-        case 'copytrade':
-          result = await this.parseCopyTradeIntent(userInput);
-          break;
-        
-        default:
-          throw new LLMError('Unable to classify trading intent');
+      let result: AdvancedTradeIntent;
+
+      // Parse based on classified type
+      if (intentType === 'trade') {
+        const tradeIntent = await this.basicService.parseTradeIntent(userInput);
+        result = { ...tradeIntent, type: 'trade' as const };
+      } else if (intentType === 'hedge') {
+        result = await this.parseHedgeIntent(userInput, accountInfo);
+      } else if (intentType === 'analysis') {
+        result = await this.parseAnalysisIntent(userInput);
+      } else if (intentType === 'recommendation') {
+        result = await this.parseRecommendationIntent(userInput);
+      } else if (intentType === '13f') {
+        result = await this.parse13FIntent(userInput);
+      } else if (intentType === 'copytrade') {
+        result = await this.parseCopyTradeIntent(userInput);
+      } else {
+        // Fallback to trade
+        const tradeIntent = await this.basicService.parseTradeIntent(userInput);
+        result = { ...tradeIntent, type: 'trade' as const };
       }
 
       // Cache the result
       this.intentCache.set(cacheKey, { intent: result, timestamp: Date.now() });
       return result;
-      
     } catch (error) {
-      throw new LLMError('Failed to parse advanced trading intent', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        userInput
-      });
+      console.error('Advanced intent parsing failed:', error);
+      
+      // Fallback to basic trade parsing
+      try {
+        const tradeIntent = await this.basicService.parseTradeIntent(userInput);
+        const result = { ...tradeIntent, type: 'trade' as const };
+        this.intentCache.set(cacheKey, { intent: result, timestamp: Date.now() });
+        return result;
+      } catch (fallbackError) {
+        throw new LLMError(`Failed to parse intent: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
+  }
+
+  /**
+   * Classify user intent using LLM
+   */
+  private async classifyIntent(userInput: string): Promise<string> {
+    const prompt = `Classify this trading request into one of these categories:
+- "trade": Simple buy/sell orders
+- "hedge": Hedging or risk management requests
+- "analysis": Market analysis or technical/fundamental analysis
+- "recommendation": Investment recommendations or "what should I buy/sell" questions
+- "13f": Questions about institutional holdings or 13F filings
+- "copytrade": Copy trading politicians or specific investors
+
+User request: "${userInput}"
+
+Respond with just the category name (e.g., "trade", "hedge", etc.)`;
+
+    const response = await this.anthropic.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 50,
+      temperature: 0,
+      messages: [
+        {
+          role: 'user',
+          content: prompt
+        }
+      ]
+    });
+
+    const content = response.content[0];
+    if (content && content.type === 'text') {
+      return (content as any).text.trim().toLowerCase();
+    }
+    
+    return 'trade'; // Default fallback
   }
 
   /**

@@ -1,226 +1,406 @@
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ClockIcon, TrendingUpIcon, CalendarIcon, InfoIcon } from 'lucide-react'
+import { 
+  ClockIcon, 
+  CalendarIcon, 
+  InfoIcon,
+  ActivityIcon,
+  BellIcon,
+  ZapIcon,
+  AlertCircleIcon,
+  GlobeIcon,
+  SunIcon,
+  MoonIcon
+} from 'lucide-react'
 import { apiService } from '@/lib/api'
 
 export function MarketStatus() {
+  const [currentTime, setCurrentTime] = useState(new Date())
+  const [timeUntilOpen, setTimeUntilOpen] = useState<string>('')
+  const [timeUntilClose, setTimeUntilClose] = useState<string>('')
+
   const { data: marketStatus, isLoading } = useQuery({
     queryKey: ['market-status'],
     queryFn: apiService.getMarketStatus,
-    refetchInterval: 60000, // Refresh every minute
+    refetchInterval: 30000, // Refresh every 30 seconds
   })
 
-  const currentTime = new Date()
+  // Update current time every second
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [])
+
+  // Calculate time until market open/close
+  useEffect(() => {
+    const now = currentTime
+    const marketOpenTime = new Date(now)
+    marketOpenTime.setHours(9, 30, 0, 0) // 9:30 AM EST
+    const marketCloseTime = new Date(now)
+    marketCloseTime.setHours(16, 0, 0, 0) // 4:00 PM EST
+
+    // If it's after close, set to next day's open
+    if (now > marketCloseTime) {
+      marketOpenTime.setDate(marketOpenTime.getDate() + 1)
+    }
+
+    // Calculate time differences
+    const msUntilOpen = marketOpenTime.getTime() - now.getTime()
+    const msUntilClose = marketCloseTime.getTime() - now.getTime()
+
+    if (msUntilOpen > 0 && (now < marketOpenTime || now > marketCloseTime)) {
+      const hours = Math.floor(msUntilOpen / (1000 * 60 * 60))
+      const minutes = Math.floor((msUntilOpen % (1000 * 60 * 60)) / (1000 * 60))
+      const seconds = Math.floor((msUntilOpen % (1000 * 60)) / 1000)
+      setTimeUntilOpen(`${hours}h ${minutes}m ${seconds}s`)
+    } else {
+      setTimeUntilOpen('')
+    }
+
+    if (msUntilClose > 0 && now >= marketOpenTime && now <= marketCloseTime) {
+      const hours = Math.floor(msUntilClose / (1000 * 60 * 60))
+      const minutes = Math.floor((msUntilClose % (1000 * 60 * 60)) / (1000 * 60))
+      const seconds = Math.floor((msUntilClose % (1000 * 60)) / 1000)
+      setTimeUntilClose(`${hours}h ${minutes}m ${seconds}s`)
+    } else {
+      setTimeUntilClose('')
+    }
+  }, [currentTime])
+
   const marketOpenTime = new Date()
-  marketOpenTime.setHours(9, 30, 0, 0) // 9:30 AM EST
+  marketOpenTime.setHours(9, 30, 0, 0)
   const marketCloseTime = new Date()
-  marketCloseTime.setHours(16, 0, 0, 0) // 4:00 PM EST
+  marketCloseTime.setHours(16, 0, 0, 0)
 
   const isWeekend = currentTime.getDay() === 0 || currentTime.getDay() === 6
-  const isAfterHours = currentTime < marketOpenTime || currentTime > marketCloseTime
+  const isPreMarket = currentTime.getHours() >= 4 && currentTime < marketOpenTime
+  const isPostMarket = currentTime > marketCloseTime && currentTime.getHours() < 20
+
+  // Market sessions data
+  const sessions = [
+    {
+      name: 'Pre-Market',
+      icon: SunIcon,
+      start: '4:00 AM',
+      end: '9:30 AM',
+      active: isPreMarket && !isWeekend,
+      color: 'amber'
+    },
+    {
+      name: 'Regular Hours',
+      icon: ActivityIcon,
+      start: '9:30 AM',
+      end: '4:00 PM',
+      active: marketStatus?.isOpen || false,
+      color: 'green'
+    },
+    {
+      name: 'After Hours',
+      icon: MoonIcon,
+      start: '4:00 PM',
+      end: '8:00 PM',
+      active: isPostMarket && !isWeekend,
+      color: 'indigo'
+    }
+  ]
+
+  // Global markets data
+  const globalMarkets = [
+    { name: 'NYSE', status: marketStatus?.isOpen ? 'Open' : 'Closed', region: 'US' },
+    { name: 'NASDAQ', status: marketStatus?.isOpen ? 'Open' : 'Closed', region: 'US' },
+    { name: 'LSE', status: 'Closed', region: 'UK' },
+    { name: 'TSE', status: 'Open', region: 'JP' },
+    { name: 'SSE', status: 'Closed', region: 'CN' },
+    { name: 'DAX', status: 'Closed', region: 'DE' }
+  ]
 
   return (
     <div className="space-y-6">
-      {/* Market Status Header */}
-      <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+      {/* Modern Market Status Header */}
+      <div className="brokerage-card p-8 relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-gray-50/50 to-white opacity-50" />
+        
+        <div className="relative">
+          <div className="flex items-start justify-between mb-8">
+            <div>
+              <h2 className="text-3xl font-semibold text-gray-900 tracking-tight flex items-center">
+                <div className="p-3 bg-gray-900 rounded-xl mr-4">
+                  <ClockIcon className="w-6 h-6 text-white" />
+                </div>
+                Market Status
+              </h2>
+              <p className="text-gray-500 mt-2 text-lg">
+                Real-time trading session information
+              </p>
+            </div>
+            
+            <div className="flex items-center space-x-4">
+              <div className={`flex items-center space-x-2 px-6 py-3 rounded-full text-sm font-semibold transition-all duration-300 ${
+                marketStatus?.isOpen 
+                  ? 'bg-green-100 text-green-700 shadow-[0_0_20px_rgba(34,197,94,0.2)]' 
+                  : 'bg-gray-100 text-gray-700'
+              }`}>
+                <div className={`w-3 h-3 rounded-full ${
+                  marketStatus?.isOpen ? 'bg-green-500' : 'bg-gray-400'
+                } ${marketStatus?.isOpen ? 'animate-pulse' : ''}`} />
+                <span>{isLoading ? 'Checking...' : marketStatus?.isOpen ? 'MARKET OPEN' : 'MARKET CLOSED'}</span>
+              </div>
+              
+              <button className="p-3 hover:bg-gray-100 rounded-lg transition-colors group">
+                <BellIcon className="w-5 h-5 text-gray-400 group-hover:text-gray-600" />
+              </button>
+            </div>
+          </div>
+
+          {/* Live Clock and Countdown */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div className="metric-card">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Current Time</p>
+              <p className="text-3xl font-bold text-gray-900 font-mono number-counter">
+                {currentTime.toLocaleTimeString('en-US', { hour12: false })}
+              </p>
+              <p className="text-sm text-gray-500 mt-1">
+                {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              </p>
+            </div>
+            
+            {timeUntilOpen && (
+              <div className="metric-card">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Opens In</p>
+                <p className="text-3xl font-bold text-gray-900 font-mono">
+                  {timeUntilOpen}
+                </p>
+                <p className="text-sm text-gray-500 mt-1">Next trading session</p>
+              </div>
+            )}
+            
+            {timeUntilClose && (
+              <div className="metric-card">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Closes In</p>
+                <p className="text-3xl font-bold text-red-600 font-mono">
+                  {timeUntilClose}
+                </p>
+                <p className="text-sm text-gray-500 mt-1">Current session ends</p>
+              </div>
+            )}
+            
+            {!timeUntilOpen && !timeUntilClose && (
+              <div className="metric-card">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Session Status</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {isWeekend ? 'Weekend' : 'After Hours'}
+                </p>
+                <p className="text-sm text-gray-500 mt-1">Markets closed</p>
+              </div>
+            )}
+          </div>
+
+          {/* Trading Sessions Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {sessions.map((session, index) => {
+              const Icon = session.icon
+              return (
+                <div 
+                  key={session.name}
+                  className={`brokerage-card p-6 transition-all duration-300 ${
+                    session.active ? 'ring-2 ring-gray-900 shadow-lg' : ''
+                  }`}
+                  style={{ animationDelay: `${index * 100}ms` }}
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div className={`p-3 rounded-xl ${
+                      session.active 
+                        ? session.color === 'green' ? 'bg-green-600' : 
+                          session.color === 'amber' ? 'bg-amber-600' : 
+                          'bg-indigo-600'
+                        : 'bg-gray-100'
+                    }`}>
+                      <Icon className={`w-5 h-5 ${
+                        session.active ? 'text-white' : 'text-gray-400'
+                      }`} />
+                    </div>
+                    {session.active && (
+                      <div className="badge bg-gray-900 text-white px-3 py-1">
+                        <ZapIcon className="w-3 h-3 mr-1" />
+                        Active
+                      </div>
+                    )}
+                  </div>
+                  
+                  <h3 className="text-lg font-semibold text-gray-900 mb-1">{session.name}</h3>
+                  <p className="text-sm text-gray-500 mb-4">Trading session</p>
+                  
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Start:</span>
+                      <span className="font-medium text-gray-900">{session.start} EST</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">End:</span>
+                      <span className="font-medium text-gray-900">{session.end} EST</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Global Markets Overview */}
+      <div className="brokerage-card p-6">
         <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 flex items-center">
-              <ClockIcon className="w-6 h-6 mr-3 text-gray-600" />
-              Market Status
-            </h2>
-            <p className="text-gray-600">
-              Current trading session information
-            </p>
-          </div>
-          
-          <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
-            marketStatus?.isOpen 
-              ? 'bg-green-100 text-green-800' 
-              : 'bg-red-100 text-red-800'
-          }`}>
-            <div className={`w-2 h-2 rounded-full mr-2 ${
-              marketStatus?.isOpen ? 'bg-green-500' : 'bg-red-500'
-            }`} />
-            {isLoading ? 'Checking...' : marketStatus?.isOpen ? 'Market Open' : 'Market Closed'}
-          </div>
+          <h3 className="text-xl font-semibold text-gray-900 flex items-center">
+            <GlobeIcon className="w-5 h-5 mr-2 text-gray-600" />
+            Global Markets
+          </h3>
+          <button className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
+            View All Markets
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          {globalMarkets.map((market, index) => (
+            <div 
+              key={market.name}
+              className="text-center p-4 rounded-lg border border-gray-200 hover:border-gray-300 transition-all duration-200 hover-lift"
+              style={{ animationDelay: `${index * 50}ms` }}
+            >
+              <div className={`w-12 h-12 mx-auto mb-3 rounded-full flex items-center justify-center ${
+                market.status === 'Open' ? 'bg-green-100' : 'bg-gray-100'
+              }`}>
+                <span className="text-xs font-bold text-gray-700">{market.region}</span>
+              </div>
+              <p className="font-semibold text-gray-900">{market.name}</p>
+              <p className={`text-xs font-medium mt-1 ${
+                market.status === 'Open' ? 'text-green-600' : 'text-gray-500'
+              }`}>
+                {market.status}
+              </p>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Trading Hours Information */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-          <div className="flex items-center mb-4">
-            <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mr-3">
-              <ClockIcon className="w-5 h-5 text-blue-600" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900">Regular Hours</h3>
-              <p className="text-sm text-gray-600">Monday - Friday</p>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Open:</span>
-              <span className="text-sm font-medium text-gray-900">9:30 AM EST</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Close:</span>
-              <span className="text-sm font-medium text-gray-900">4:00 PM EST</span>
-            </div>
-          </div>
-        </div>
+      {/* Current Session Details */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="brokerage-card p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <InfoIcon className="w-5 h-5 mr-2 text-gray-600" />
+            Session Information
+          </h3>
 
-        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-          <div className="flex items-center mb-4">
-            <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center mr-3">
-              <TrendingUpIcon className="w-5 h-5 text-purple-600" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900">Pre-Market</h3>
-              <p className="text-sm text-gray-600">Extended hours</p>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Start:</span>
-              <span className="text-sm font-medium text-gray-900">4:00 AM EST</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">End:</span>
-              <span className="text-sm font-medium text-gray-900">9:30 AM EST</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-          <div className="flex items-center mb-4">
-            <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center mr-3">
-              <TrendingUpIcon className="w-5 h-5 text-orange-600" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900">After Hours</h3>
-              <p className="text-sm text-gray-600">Extended hours</p>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Start:</span>
-              <span className="text-sm font-medium text-gray-900">4:00 PM EST</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">End:</span>
-              <span className="text-sm font-medium text-gray-900">8:00 PM EST</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Current Session Info */}
-      <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-          <InfoIcon className="w-5 h-5 mr-2 text-gray-600" />
-          Current Session
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-700">Local Time</span>
-              <span className="text-sm font-semibold text-gray-900">
-                {currentTime.toLocaleTimeString()}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-700">Market Date</span>
-              <span className="text-sm font-semibold text-gray-900">
-                {currentTime.toLocaleDateString()}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-              <span className="text-sm font-medium text-gray-700">Day of Week</span>
-              <span className="text-sm font-semibold text-gray-900">
-                {currentTime.toLocaleDateString('en-US', { weekday: 'long' })}
-              </span>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className={`p-4 rounded-lg border ${
+          <div className="space-y-3">
+            <div className={`p-4 rounded-lg transition-all duration-200 ${
               isWeekend 
-                ? 'bg-yellow-50 border-yellow-200' 
-                : 'bg-green-50 border-green-200'
+                ? 'bg-amber-50 border border-amber-200' 
+                : 'bg-gray-50 border border-gray-200'
             }`}>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">Weekend Status</span>
+                <span className="text-sm font-medium text-gray-700">Day Type</span>
                 <span className={`text-sm font-semibold ${
-                  isWeekend ? 'text-yellow-800' : 'text-green-800'
+                  isWeekend ? 'text-amber-700' : 'text-gray-900'
                 }`}>
-                  {isWeekend ? 'Weekend' : 'Weekday'}
+                  {isWeekend ? 'Weekend' : 'Trading Day'}
                 </span>
               </div>
             </div>
 
-            <div className={`p-4 rounded-lg border ${
-              isAfterHours 
-                ? 'bg-blue-50 border-blue-200' 
-                : 'bg-green-50 border-green-200'
+            <div className={`p-4 rounded-lg transition-all duration-200 ${
+              marketStatus?.isOpen
+                ? 'bg-green-50 border border-green-200' 
+                : isPreMarket
+                  ? 'bg-amber-50 border border-amber-200'
+                  : isPostMarket
+                    ? 'bg-indigo-50 border border-indigo-200'
+                    : 'bg-gray-50 border border-gray-200'
             }`}>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">Trading Session</span>
+                <span className="text-sm font-medium text-gray-700">Current Session</span>
                 <span className={`text-sm font-semibold ${
-                  isAfterHours ? 'text-blue-800' : 'text-green-800'
+                  marketStatus?.isOpen ? 'text-green-700' : 
+                  isPreMarket ? 'text-amber-700' :
+                  isPostMarket ? 'text-indigo-700' :
+                  'text-gray-700'
                 }`}>
-                  {isAfterHours ? 'After Hours' : 'Regular Hours'}
+                  {marketStatus?.isOpen ? 'Regular Trading' :
+                   isPreMarket ? 'Pre-Market' :
+                   isPostMarket ? 'After Hours' :
+                   'Closed'}
                 </span>
               </div>
             </div>
 
-            <div className="p-4 bg-gray-50 rounded-lg">
+            <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-gray-700">Trading Mode</span>
-                <span className="text-sm font-semibold text-gray-900">
+                <div className="badge bg-gray-100 text-gray-700 px-3 py-1">
                   Paper Trading
-                </span>
+                </div>
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Market Holidays */}
+        <div className="brokerage-card p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <CalendarIcon className="w-5 h-5 mr-2 text-gray-600" />
+            Upcoming Holidays
+          </h3>
+          
+          <div className="space-y-3">
+            {[
+              { date: 'Feb 19', name: 'Presidents Day', daysAway: 45 },
+              { date: 'Mar 29', name: 'Good Friday', daysAway: 84 },
+              { date: 'May 27', name: 'Memorial Day', daysAway: 143 },
+              { date: 'Jul 4', name: 'Independence Day', daysAway: 181 }
+            ].map((holiday, index) => (
+              <div 
+                key={holiday.name}
+                className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition-colors"
+                style={{ animationDelay: `${index * 50}ms` }}
+              >
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
+                    <span className="text-xs font-bold text-gray-600">{holiday.date.split(' ')[0]}</span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{holiday.name}</p>
+                    <p className="text-xs text-gray-500">{holiday.date}, 2024</p>
+                  </div>
+                </div>
+                <span className="text-xs text-gray-500">{holiday.daysAway} days</span>
+              </div>
+            ))}
+          </div>
+          
+          <button className="w-full mt-4 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
+            View Full Calendar
+          </button>
         </div>
       </div>
 
-      {/* Market Holidays Notice */}
-      <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-        <div className="flex items-start space-x-3">
-          <CalendarIcon className="w-5 h-5 text-gray-600 mt-0.5" />
-          <div>
-            <h3 className="font-semibold text-gray-900 mb-2">Market Holidays</h3>
-            <p className="text-sm text-gray-600 mb-3">
-              The stock market is closed on federal holidays and some other designated days.
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <h4 className="text-sm font-medium text-gray-900 mb-2">Upcoming Holidays 2024</h4>
-                <ul className="text-xs text-gray-600 space-y-1">
-                  <li>• Presidents Day - February 19</li>
-                  <li>• Good Friday - March 29</li>
-                  <li>• Memorial Day - May 27</li>
-                  <li>• Juneteenth - June 19</li>
-                </ul>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-gray-900 mb-2">End of Year Holidays</h4>
-                <ul className="text-xs text-gray-600 space-y-1">
-                  <li>• Independence Day - July 4</li>
-                  <li>• Labor Day - September 2</li>
-                  <li>• Thanksgiving - November 28</li>
-                  <li>• Christmas Day - December 25</li>
-                </ul>
-              </div>
+      {/* Market Alert */}
+      {isWeekend && (
+        <div className="glass-card p-6 border-amber-200 bg-amber-50/50 slide-in-bottom">
+          <div className="flex items-start space-x-3">
+            <div className="p-2 bg-amber-100 rounded-lg">
+              <AlertCircleIcon className="w-5 h-5 text-amber-600" />
+            </div>
+            <div className="flex-1">
+              <h4 className="font-semibold text-gray-900 mb-1">Weekend Trading Notice</h4>
+              <p className="text-sm text-gray-600">
+                Markets are closed on weekends. Trading will resume on Monday at 9:30 AM EST.
+                You can still place orders, but they will be queued for execution when markets open.
+              </p>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 } 
