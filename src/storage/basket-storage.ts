@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { PortfolioBasket } from '../services/thirteenth-f-service';
+import { cacheService } from '../cache/cache-service';
 
 export interface StoredBasket extends PortfolioBasket {
   updatedAt: Date;
@@ -9,6 +10,9 @@ export interface StoredBasket extends PortfolioBasket {
 export class BasketStorageService {
   private readonly dataDir: string;
   private readonly basketsFile: string;
+  private basketsCache: StoredBasket[] | null = null;
+  private cacheTimestamp: number = 0;
+  private readonly CACHE_TTL = 60000; // 1 minute
 
   constructor() {
     this.dataDir = path.join(process.cwd(), 'data');
@@ -37,15 +41,26 @@ export class BasketStorageService {
    */
   async loadBaskets(): Promise<StoredBasket[]> {
     try {
+      // Check in-memory cache first
+      if (this.basketsCache && Date.now() - this.cacheTimestamp < this.CACHE_TTL) {
+        return this.basketsCache;
+      }
+
       const data = await fs.readFile(this.basketsFile, 'utf-8');
       const baskets = JSON.parse(data);
       
       // Convert date strings back to Date objects
-      return baskets.map((basket: any) => ({
+      const parsedBaskets = baskets.map((basket: any) => ({
         ...basket,
         createdAt: new Date(basket.createdAt),
         updatedAt: new Date(basket.updatedAt)
       }));
+
+      // Update cache
+      this.basketsCache = parsedBaskets;
+      this.cacheTimestamp = Date.now();
+      
+      return parsedBaskets;
     } catch (error) {
       console.error('Error loading baskets:', error);
       return [];
@@ -72,7 +87,12 @@ export class BasketStorageService {
         baskets.push(storedBasket);
       }
 
+      // Write to file and update cache atomically
       await fs.writeFile(this.basketsFile, JSON.stringify(baskets, null, 2));
+      
+      // Update cache
+      this.basketsCache = baskets;
+      this.cacheTimestamp = Date.now();
     } catch (error) {
       console.error('Error saving basket:', error);
       throw new Error('Failed to save basket');
@@ -100,7 +120,12 @@ export class BasketStorageService {
 
       baskets[basketIndex] = updatedBasket;
 
+      // Write to file and update cache atomically
       await fs.writeFile(this.basketsFile, JSON.stringify(baskets, null, 2));
+      
+      // Update cache
+      this.basketsCache = baskets;
+      this.cacheTimestamp = Date.now();
     } catch (error) {
       console.error('Error updating basket:', error);
       throw new Error('Failed to update basket');
@@ -119,7 +144,12 @@ export class BasketStorageService {
         throw new Error(`Basket with ID ${basketId} not found`);
       }
 
+      // Write to file and update cache atomically
       await fs.writeFile(this.basketsFile, JSON.stringify(filteredBaskets, null, 2));
+      
+      // Update cache
+      this.basketsCache = filteredBaskets;
+      this.cacheTimestamp = Date.now();
     } catch (error) {
       console.error('Error deleting basket:', error);
       throw new Error('Failed to delete basket');
@@ -137,6 +167,14 @@ export class BasketStorageService {
       console.error('Error getting basket:', error);
       return null;
     }
+  }
+
+  /**
+   * Clear in-memory cache
+   */
+  clearCache(): void {
+    this.basketsCache = null;
+    this.cacheTimestamp = 0;
   }
 
   /**
@@ -193,7 +231,12 @@ export class BasketStorageService {
 
       basket.updatedAt = new Date();
       
+      // Write to file and update cache atomically
       await fs.writeFile(this.basketsFile, JSON.stringify(baskets, null, 2));
+      
+      // Update cache
+      this.basketsCache = baskets;
+      this.cacheTimestamp = Date.now();
     } catch (error) {
       console.error('Error updating basket execution:', error);
       throw new Error('Failed to update basket execution');

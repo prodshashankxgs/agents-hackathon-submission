@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config';
 import { TradeIntent, LLMError } from '../types';
+import { cacheService } from '../cache/cache-service';
 
 export class ClaudeService {
   private anthropic: Anthropic;
@@ -17,6 +18,13 @@ export class ClaudeService {
   async parseTradeIntent(userInput: string): Promise<TradeIntent> {
     try {
       const normalizedInput = this.preprocessInput(userInput);
+      
+      // Check cache first
+      const inputHash = cacheService.createHash(normalizedInput);
+      const cached = cacheService.getParsedIntent(inputHash);
+      if (cached) {
+        return cached;
+      }
       
       const prompt = `You are a trading assistant that parses natural language trading commands.
 Convert user input into structured trade parameters.
@@ -108,6 +116,9 @@ If you cannot parse the input, respond with:
 
       // Validate the parsed intent
       this.validateTradeIntent(tradeIntent);
+
+      // Cache the parsed intent
+      cacheService.setParsedIntent(inputHash, normalizedInput, tradeIntent);
 
       return tradeIntent;
     } catch (error) {

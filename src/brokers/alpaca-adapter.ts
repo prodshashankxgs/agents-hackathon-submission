@@ -11,6 +11,7 @@ import {
   BrokerError 
 } from '../types';
 import { config } from '../config';
+import { cacheService } from '../cache/cache-service';
 
 export class AlpacaAdapter implements BrokerAdapter {
   private alpaca: Alpaca;
@@ -30,6 +31,13 @@ export class AlpacaAdapter implements BrokerAdapter {
       const account = await this.alpaca.getAccount();
       const buyingPower = parseFloat(account.buying_power);
       
+      // Create validation cache key
+      const validationKey = `${order.symbol}-${order.action}-${order.amountType}-${order.amount}`;
+      const cachedValidation = cacheService.getValidation(validationKey);
+      if (cachedValidation) {
+        return cachedValidation;
+      }
+
       // Try to get current market data, but don't fail if unavailable
       let marketData: MarketData | null = null;
       let marketDataError = false;
@@ -112,7 +120,7 @@ export class AlpacaAdapter implements BrokerAdapter {
         errors.push(`Invalid symbol: ${order.symbol}`);
       }
       
-      return {
+      const validation = {
         isValid: errors.length === 0,
         errors,
         warnings,
@@ -121,6 +129,10 @@ export class AlpacaAdapter implements BrokerAdapter {
         currentPrice: currentPrice,
         estimatedShares: estimatedShares
       };
+
+      // Cache validation for 1 minute
+      cacheService.setValidation(validationKey, validation, 60000);
+      return validation;
     } catch (error) {
       throw new BrokerError('Failed to validate order', {
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -205,6 +217,12 @@ export class AlpacaAdapter implements BrokerAdapter {
 
   async getAccountInfo(): Promise<AccountInfo> {
     try {
+      // Check cache first
+      const cached = cacheService.getAccountInfo();
+      if (cached) {
+        return cached;
+      }
+
       const [account, positions] = await Promise.all([
         this.alpaca.getAccount(),
         this.alpaca.getPositions()
@@ -219,13 +237,17 @@ export class AlpacaAdapter implements BrokerAdapter {
         side: parseFloat(pos.qty) > 0 ? 'long' : 'short'
       }));
       
-      return {
+      const accountInfo = {
         accountId: account.account_number,
         buyingPower: parseFloat(account.buying_power),
         portfolioValue: parseFloat(account.portfolio_value),
         dayTradeCount: account.daytrade_count,
         positions: mappedPositions
       };
+
+      // Cache account info for 2 minutes
+      cacheService.setAccountInfo(accountInfo, 120000);
+      return accountInfo;
     } catch (error) {
       throw new BrokerError('Failed to get account info', {
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -235,6 +257,12 @@ export class AlpacaAdapter implements BrokerAdapter {
 
   async getMarketData(symbol: string): Promise<MarketData> {
     try {
+      // Check cache first
+      const cached = cacheService.getMarketData(symbol);
+      if (cached) {
+        return cached;
+      }
+
       // Check if market is open first
       const marketIsOpen = await this.isMarketOpen();
       
@@ -287,7 +315,7 @@ export class AlpacaAdapter implements BrokerAdapter {
       
       const changePercent = ((currentPrice - previousClose) / previousClose) * 100;
       
-      return {
+      const marketData = {
         symbol,
         currentPrice,
         previousClose,
@@ -295,6 +323,11 @@ export class AlpacaAdapter implements BrokerAdapter {
         volume: (latestTrade as any)?.Size || (latestTrade as any)?.size || (latestTrade as any)?.s || 0,
         isMarketOpen: marketIsOpen
       };
+
+      // Cache market data for 30 seconds (or 5 minutes if market is closed)
+      const ttl = marketIsOpen ? 30000 : 300000;
+      cacheService.setMarketData(symbol, marketData, ttl);
+      return marketData;
     } catch (error) {
       throw new BrokerError('Failed to get market data', {
         error: error instanceof Error ? error.message : 'Unknown error',

@@ -9,6 +9,8 @@ import { ValidationService } from './trading/validation-service';
 import { ThirteenFService } from './services/thirteenth-f-service';
 import { CopyTradeService } from './services/copytrade-service';
 import { TradeIntent, CLIOptions, TradingError } from './types';
+import { brokerLimiter } from './utils/concurrency-limiter';
+import { performanceMiddleware, performanceMonitor } from './utils/performance-monitor';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -16,6 +18,7 @@ const port = process.env.PORT || 3001;
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(performanceMiddleware);
 
 // Initialize services
 const claudeService = new ClaudeService();
@@ -692,15 +695,15 @@ app.post('/api/command/execute', async (req, res) => {
 
     console.log('🎯 Executing command:', command);
 
-            // Parse the command using Claude
+        // Parse the command using Claude
         console.log('🤖 Parsing command with Claude...');
         const intent = await claudeService.parseTradeIntent(command);
-    console.log('✅ Parsed intent:', JSON.stringify(intent, null, 2));
-    
-    // Validate the trade
-    console.log('🔍 Validating trade...');
-    const validation = await validator.validateTrade(intent);
-    console.log('📋 Validation results:', JSON.stringify(validation, null, 2));
+        console.log('✅ Parsed intent:', JSON.stringify(intent, null, 2));
+        
+        // Validate the trade
+        console.log('🔍 Validating trade...');
+        const validation = await validator.validateTrade(intent);
+        console.log('📋 Validation results:', JSON.stringify(validation, null, 2));
     
     if (!validation.isValid) {
       console.log('❌ Validation failed:', validation.errors);
