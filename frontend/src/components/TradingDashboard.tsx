@@ -1,15 +1,12 @@
-import { useState, lazy, Suspense, useEffect } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { 
-  ActivityIcon, 
-  DollarSignIcon, 
-  TrendingUpIcon, 
+  ActivityIcon,
   BarChart3Icon,
-  PieChartIcon,
   CreditCardIcon,
+  DollarSignIcon, 
+  PieChartIcon,
   LineChartIcon,
-  ArrowUpIcon,
-  ArrowDownIcon,
   BellIcon,
   SettingsIcon,
   SearchIcon,
@@ -18,7 +15,6 @@ import {
   XIcon
 } from 'lucide-react'
 import { apiService } from '@/lib/api'
-import { formatCurrency, formatPercentage } from '@/lib/utils'
 import { TradingInterface } from './TradingInterface'
 import { PortfolioOverview } from './PortfolioOverview'
 import { MarketStatus } from './MarketStatus'
@@ -34,11 +30,11 @@ interface TradingDashboardProps {
 
 export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
   const [selectedTab, setSelectedTab] = useState<'trade' | 'portfolio' | 'performance' | 'positions' | 'baskets' | 'market'>('trade')
-  const [previousPnL, setPreviousPnL] = useState<number | null>(null)
+
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   // Fetch account information
-  const { data: accountInfo, isLoading: accountLoading, error: accountError } = useQuery({
+  const { data: accountInfo, error: accountError } = useQuery({
     queryKey: ['account'],
     queryFn: apiService.getAccountInfo,
     refetchInterval: 30000,
@@ -58,18 +54,7 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
     refetchInterval: 60000,
   })
 
-  const totalPnL = accountInfo?.positions?.reduce((sum, pos) => sum + pos.unrealizedPnL, 0) || 0
-  const totalPnLPercent = accountInfo && accountInfo.portfolioValue > 0 
-    ? (totalPnL / (accountInfo.portfolioValue - totalPnL)) * 100 
-    : 0
 
-  // Track PnL changes for animations
-  useEffect(() => {
-    if (previousPnL !== null && totalPnL !== previousPnL) {
-      // Trigger animation
-    }
-    setPreviousPnL(totalPnL)
-  }, [totalPnL, previousPnL])
 
   const navigationItems = [
     { id: 'trade', label: 'Trade', icon: DollarSignIcon },
@@ -248,98 +233,7 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
         {/* Content Area with modern styling */}
         <main className="flex-1 overflow-y-auto custom-scrollbar bg-gradient-to-b from-gray-50/30 to-white">
           <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
-            {/* Modern Stats Grid */}
-            {accountInfo && !accountLoading && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
-                {[
-                  {
-                    icon: TrendingUpIcon,
-                    label: 'Portfolio Value',
-                    value: formatCurrency(accountInfo.portfolioValue),
-                    subtext: 'Total Assets',
-                    color: 'gray'
-                  },
-                  {
-                    icon: CreditCardIcon,
-                    label: 'Buying Power',
-                    value: formatCurrency(accountInfo.buyingPower),
-                    subtext: 'Available Cash',
-                    color: 'gray'
-                  },
-                  {
-                    icon: ActivityIcon,
-                    label: "Today's P&L",
-                    value: formatCurrency(totalPnL),
-                    subtext: `${totalPnL >= 0 ? '+' : ''}${formatPercentage(totalPnLPercent)}`,
-                    color: totalPnL >= 0 ? 'green' : 'red',
-                    isAnimated: true
-                  },
-                  {
-                    icon: BarChart3Icon,
-                    label: 'Positions',
-                    value: accountInfo.positions.length.toString(),
-                    subtext: 'Active Holdings',
-                    color: 'gray'
-                  }
-                ].map((stat, index) => (
-                  <div 
-                    key={stat.label}
-                    className="metric-card group hover-lift"
-                    style={{ animationDelay: `${index * 100}ms` }}
-                  >
-                    <div className="flex items-start justify-between mb-4">
-                      <div className={`p-3 rounded-xl bg-gray-50 group-hover:bg-gray-100 transition-colors duration-300`}>
-                        <stat.icon className={`w-5 h-5 ${
-                          stat.color === 'green' ? 'text-green-600' : 
-                          stat.color === 'red' ? 'text-red-600' : 
-                          'text-gray-600'
-                        }`} />
-                      </div>
-                      {stat.isAnimated && (
-                        <div className={`badge ${totalPnL >= 0 ? 'badge-success' : 'badge-error'}`}>
-                          {totalPnL >= 0 ? (
-                            <ArrowUpIcon className="w-3 h-3 mr-1" />
-                          ) : (
-                            <ArrowDownIcon className="w-3 h-3 mr-1" />
-                          )}
-                          {stat.subtext}
-                        </div>
-                      )}
-                    </div>
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
-                      {stat.label}
-                    </p>
-                    <p className={`text-xl sm:text-2xl font-semibold ${
-                      stat.color === 'green' ? 'text-green-600' : 
-                      stat.color === 'red' ? 'text-red-600' : 
-                      'text-gray-900'
-                    } ${stat.isAnimated ? 'price-ticker' : ''}`}>
-                      {stat.value}
-                    </p>
-                    {!stat.isAnimated && (
-                      <p className="text-sm text-gray-500 mt-1">{stat.subtext}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
 
-            {/* Loading State with modern skeleton */}
-            {accountLoading && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
-                {[...Array(4)].map((_, i) => (
-                  <div key={i} className="metric-card">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="skeleton h-12 w-12 rounded-xl"></div>
-                      <div className="skeleton h-6 w-16 rounded-full"></div>
-                    </div>
-                    <div className="skeleton h-4 w-24 mb-2 rounded"></div>
-                    <div className="skeleton h-8 w-32 mb-1 rounded"></div>
-                    <div className="skeleton h-3 w-20 rounded"></div>
-                  </div>
-                ))}
-              </div>
-            )}
 
             {/* Main Content with tab animation */}
             <div key={selectedTab} className="tab-content-enter">
