@@ -13,7 +13,9 @@ import {
   BellIcon,
   SettingsIcon,
   SearchIcon,
-  XCircleIcon
+  XCircleIcon,
+  MenuIcon,
+  XIcon
 } from 'lucide-react'
 import { apiService } from '@/lib/api'
 import { formatCurrency, formatPercentage } from '@/lib/utils'
@@ -33,6 +35,7 @@ interface TradingDashboardProps {
 export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
   const [selectedTab, setSelectedTab] = useState<'trade' | 'portfolio' | 'performance' | 'positions' | 'baskets' | 'market'>('trade')
   const [previousPnL, setPreviousPnL] = useState<number | null>(null)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   // Fetch account information
   const { data: accountInfo, isLoading: accountLoading, error: accountError } = useQuery({
@@ -78,23 +81,44 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
   ] as const
 
   return (
-    <div className="flex h-screen bg-white">
-      {/* Modern Left Sidebar */}
-      <div className="w-72 bg-white border-r border-gray-100 flex flex-col relative overflow-hidden">
+    <div className="flex h-screen bg-white relative">
+      {/* Mobile Menu Overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+      
+      {/* Modern Left Sidebar - Responsive */}
+      <div className={`
+        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
+        lg:translate-x-0 fixed lg:static inset-y-0 left-0 z-50
+        w-72 sm:w-80 lg:w-72 xl:w-80 2xl:w-96
+        bg-white border-r border-gray-100 flex flex-col relative overflow-hidden
+        transition-transform duration-300 ease-in-out
+      `}>
         {/* Subtle grid pattern background */}
         <div className="absolute inset-0 grid-pattern opacity-[0.02]" />
         
         {/* Header with glassmorphism effect */}
-        <div className="relative p-8 border-b border-gray-100 bg-gradient-to-b from-white to-gray-50/50">
+        <div className="relative p-4 sm:p-6 lg:p-8 border-b border-gray-100 bg-gradient-to-b from-white to-gray-50/50">
           <div className="flex items-center justify-between mb-1">
-            <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 tracking-tight">
               Terminal
             </h1>
             <div className="flex items-center space-x-2">
-              <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200 group">
+              {/* Mobile Close Button */}
+              <button 
+                className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200 group"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                <XIcon className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
+              </button>
+              <button className="hidden sm:block p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200 group">
                 <BellIcon className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
               </button>
-              <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200 group">
+              <button className="hidden sm:block p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200 group">
                 <SettingsIcon className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
               </button>
             </div>
@@ -103,19 +127,19 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
         </div>
 
         {/* Search Bar */}
-        <div className="px-6 py-4">
+        <div className="px-4 sm:px-6 py-3 sm:py-4">
           <div className="relative">
             <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input 
               type="text"
               placeholder="Search symbols..."
-              className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:bg-white focus:border-gray-300 focus:outline-none transition-all duration-200"
+              className="w-full pl-10 pr-4 py-2 sm:py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:bg-white focus:border-gray-300 focus:outline-none transition-all duration-200"
             />
           </div>
         </div>
 
         {/* Navigation with modern styling */}
-        <nav className="flex-1 px-4 py-2 overflow-y-auto custom-scrollbar">
+        <nav className="flex-1 px-3 sm:px-4 py-2 overflow-y-auto custom-scrollbar">
           <div className="space-y-1">
             {navigationItems.map((item, index) => {
               const Icon = item.icon
@@ -141,7 +165,7 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
         </nav>
 
         {/* Modern Status Section */}
-        <div className="p-6 border-t border-gray-100 space-y-4 bg-gradient-to-t from-gray-50/50 to-white">
+        <div className="p-4 sm:p-6 border-t border-gray-100 space-y-3 sm:space-y-4 bg-gradient-to-t from-gray-50/50 to-white">
           {/* Connection Status with animation */}
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Status</span>
@@ -150,16 +174,6 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
               <span className="transition-all duration-300">{wsConnected ? 'Live' : 'Offline'}</span>
             </div>
           </div>
-          
-          {/* Trading Mode with badge styling */}
-          {healthStatus && (
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Mode</span>
-              <div className={`badge ${healthStatus.mode === 'paper' ? 'badge-warning' : 'badge-error'} px-3 py-1`}>
-                <span className="font-medium">{healthStatus.mode === 'paper' ? 'Paper' : 'Live'}</span>
-              </div>
-            </div>
-          )}
           
           {/* Market Status with modern indicator */}
           {marketStatus && (
@@ -177,120 +191,66 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
               </div>
             </div>
           )}
+          
+          {/* Trading Mode with consistent indicator styling */}
+          {healthStatus && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Mode</span>
+              <div className="flex items-center space-x-2">
+                <div className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                  healthStatus.mode === 'paper' ? 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.5)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'
+                }`} />
+                <span className={`text-xs font-medium ${
+                  healthStatus.mode === 'paper' ? 'text-yellow-600' : 'text-red-600'
+                }`}>
+                  {healthStatus.mode === 'paper' ? 'Paper' : 'Live'}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-gray-50/30">
+      <div className="flex-1 flex flex-col overflow-hidden bg-gray-50/30 lg:ml-0">
         {/* Modern Top Header */}
-        <header className="bg-white border-b border-gray-100 px-8 py-6 relative overflow-hidden">
+        <header className="bg-white border-b border-gray-100 px-4 sm:px-6 lg:px-8 py-4 sm:py-6 relative overflow-hidden">
           {/* Subtle gradient overlay */}
           <div className="absolute inset-0 bg-gradient-to-r from-gray-50/0 via-gray-50/50 to-gray-50/0 opacity-50" />
           
           <div className="relative flex items-center justify-between">
-            <div className="slide-in-right">
-              <h2 className="text-3xl font-semibold text-gray-900 capitalize tracking-tight">
-                {selectedTab}
-              </h2>
-              <p className="text-sm text-gray-500 mt-1 font-medium">
-                {selectedTab === 'trade' && 'Execute trades using natural language'}
-                {selectedTab === 'portfolio' && 'Monitor your investment performance'}
-                {selectedTab === 'performance' && 'Analyze returns and benchmarks'}
-                {selectedTab === 'positions' && 'Manage your current holdings'}
-                {selectedTab === 'baskets' && 'Explore institutional portfolios'}
-                {selectedTab === 'market' && 'Real-time market intelligence'}
-              </p>
-            </div>
-            
-            {/* Organized Portfolio Metrics */}
-            {accountInfo && !accountLoading && (
-              <div className="grid grid-cols-3 gap-6">
-                {/* Net Worth Card */}
-                <div className="metric-card p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 scale-in" style={{ animationDelay: '100ms' }}>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Net Worth</p>
-                    <div className="p-2 bg-gray-100 rounded-lg">
-                      <TrendingUpIcon className="w-4 h-4 text-gray-600" />
-                    </div>
-                  </div>
-                  <p className="text-3xl font-bold text-gray-900 number-counter mb-1">
-                    {formatCurrency(accountInfo.portfolioValue)}
-                  </p>
-                  <p className="text-sm text-gray-500 font-medium">Total Portfolio Value</p>
-                </div>
-
-                {/* Day Change Card */}
-                <div className={`metric-card p-6 border rounded-xl shadow-sm hover:shadow-md transition-all duration-300 scale-in ${
-                  totalPnL >= 0 
-                    ? 'bg-green-50 border-green-200' 
-                    : 'bg-red-50 border-red-200'
-                }`} style={{ animationDelay: '200ms' }}>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Day Change</p>
-                    <div className={`p-2 rounded-lg ${
-                      totalPnL >= 0 ? 'bg-green-100' : 'bg-red-100'
-                    }`}>
-                      {totalPnL >= 0 ? (
-                        <ArrowUpIcon className="w-4 h-4 text-green-600" />
-                      ) : (
-                        <ArrowDownIcon className="w-4 h-4 text-red-600" />
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-baseline space-x-2 mb-1">
-                    <p className={`text-3xl font-bold price-ticker ${
-                      totalPnL >= 0 ? 'text-green-600 price-up' : 'text-red-600 price-down'
-                    }`}>
-                      {totalPnL >= 0 ? '+' : ''}{formatCurrency(totalPnL)}
-                    </p>
-                  </div>
-                  <p className={`text-sm font-medium ${
-                    totalPnL >= 0 ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    {totalPnL >= 0 ? '+' : ''}{formatPercentage(totalPnLPercent)}
-                  </p>
-                </div>
-
-                {/* Cash Card */}
-                <div className="metric-card p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 scale-in" style={{ animationDelay: '300ms' }}>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Cash</p>
-                    <div className="p-2 bg-gray-100 rounded-lg">
-                      <DollarSignIcon className="w-4 h-4 text-gray-600" />
-                    </div>
-                  </div>
-                  <p className="text-3xl font-bold text-gray-900 number-counter mb-1">
-                    {formatCurrency(accountInfo.buyingPower)}
-                  </p>
-                  <p className="text-sm text-gray-500 font-medium">Available for Trading</p>
-                </div>
-                              </div>
-              )}
-
-            {/* Loading State for Header Metrics */}
-            {accountLoading && (
-              <div className="grid grid-cols-3 gap-6">
-                {[...Array(3)].map((_, i) => (
-                  <div key={i} className="metric-card p-6 bg-white border border-gray-200 rounded-xl shadow-sm">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="skeleton h-3 w-16 rounded"></div>
-                      <div className="skeleton h-8 w-8 rounded-lg"></div>
-                    </div>
-                    <div className="skeleton h-8 w-24 mb-1 rounded"></div>
-                    <div className="skeleton h-4 w-20 rounded"></div>
-                  </div>
-                ))}
+            <div className="flex items-center space-x-4">
+              {/* Mobile Hamburger Menu */}
+              <button 
+                className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200"
+                onClick={() => setIsMobileMenuOpen(true)}
+              >
+                <MenuIcon className="w-5 h-5 text-gray-600" />
+              </button>
+              <div className="slide-in-right">
+                <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 capitalize tracking-tight">
+                  {selectedTab}
+                </h2>
+                <p className="text-sm text-gray-500 mt-1 font-medium">
+                  {selectedTab === 'trade' && 'Execute trades using natural language'}
+                  {selectedTab === 'portfolio' && 'Monitor your investment performance'}
+                  {selectedTab === 'performance' && 'Analyze returns and benchmarks'}
+                  {selectedTab === 'positions' && 'Manage your current holdings'}
+                  {selectedTab === 'baskets' && 'Explore institutional portfolios'}
+                  {selectedTab === 'market' && 'Real-time market intelligence'}
+                </p>
               </div>
-            )}
+            </div>
+
           </div>
         </header>
 
         {/* Content Area with modern styling */}
         <main className="flex-1 overflow-y-auto custom-scrollbar bg-gradient-to-b from-gray-50/30 to-white">
-          <div className="max-w-7xl mx-auto p-8">
+          <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
             {/* Modern Stats Grid */}
             {accountInfo && !accountLoading && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
                 {[
                   {
                     icon: TrendingUpIcon,
@@ -349,7 +309,7 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
                     <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
                       {stat.label}
                     </p>
-                    <p className={`text-2xl font-semibold ${
+                    <p className={`text-xl sm:text-2xl font-semibold ${
                       stat.color === 'green' ? 'text-green-600' : 
                       stat.color === 'red' ? 'text-red-600' : 
                       'text-gray-900'
@@ -366,7 +326,7 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
 
             {/* Loading State with modern skeleton */}
             {accountLoading && (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
                 {[...Array(4)].map((_, i) => (
                   <div key={i} className="metric-card">
                     <div className="flex items-center justify-between mb-4">

@@ -19,7 +19,7 @@ import {
   UsersIcon,
   ZapIcon,
   InfoIcon,
-  SendIcon
+  ArrowUpIcon
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { apiService, type HedgeRecommendation, type MarketAnalysis, type ThirteenFPortfolio, type PortfolioBasket } from '@/lib/api'
@@ -591,9 +591,9 @@ export function TradingInterface() {
                 {!isLoading && command.trim() && (
                   <button
                     type="submit"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 bg-gray-900 hover:bg-gray-800 rounded-lg transition-all duration-200 hover:scale-105 group"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 bg-gray-900 hover:bg-gray-800 rounded-full transition-all duration-200 hover:scale-105 group"
                   >
-                    <SendIcon className="w-4 h-4 text-white group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                    <ArrowUpIcon className="w-2.5 h-2.5 text-white group-hover:-translate-y-0.5 transition-transform" />
                   </button>
                 )}
               </div>
