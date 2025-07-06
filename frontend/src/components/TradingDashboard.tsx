@@ -155,7 +155,7 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Status</span>
             <div className={`flex items-center space-x-2 text-xs font-medium ${wsConnected ? 'text-green-600' : 'text-red-600'}`}>
-              <div className={`status-dot ${wsConnected ? 'status-connected' : 'status-disconnected'}`} />
+              <div className={`w-2 h-2 rounded-full transition-all duration-300 ${wsConnected ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-gray-400'}`} />
               <span className="transition-all duration-300">{wsConnected ? 'Live' : 'Offline'}</span>
             </div>
           </div>

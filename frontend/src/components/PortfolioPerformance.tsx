@@ -419,6 +419,50 @@ export function PortfolioPerformance({ accountInfo }: PortfolioPerformanceProps)
 
   const metrics = calculateMetrics()
 
+  // Dynamic scaling functions for better chart visualization
+  const calculateYAxisDomain = (data: PortfolioHistoryPoint[], key: keyof PortfolioHistoryPoint, padding: number = 0.1) => {
+    if (!data || data.length === 0) return [0, 100]
+    
+    const values = data.map(d => Number(d[key])).filter(v => !isNaN(v) && isFinite(v))
+    if (values.length === 0) return [0, 100]
+    
+    const min = Math.min(...values)
+    const max = Math.max(...values)
+    const range = max - min
+    
+    // Add padding to make the chart more readable
+    const paddingAmount = range * padding
+    const domainMin = min - paddingAmount
+    const domainMax = max + paddingAmount
+    
+    return [domainMin, domainMax]
+  }
+
+  const calculateDualAxisDomain = (data: PortfolioHistoryPoint[], key1: keyof PortfolioHistoryPoint, key2: keyof PortfolioHistoryPoint, padding: number = 0.1) => {
+    if (!data || data.length === 0) return [0, 100]
+    
+    const values1 = data.map(d => Number(d[key1])).filter(v => !isNaN(v) && isFinite(v))
+    const values2 = data.map(d => Number(d[key2])).filter(v => !isNaN(v) && isFinite(v))
+    const allValues = [...values1, ...values2]
+    
+    if (allValues.length === 0) return [0, 100]
+    
+    const min = Math.min(...allValues)
+    const max = Math.max(...allValues)
+    const range = max - min
+    
+    // Add padding to make the chart more readable
+    const paddingAmount = range * padding
+    const domainMin = min - paddingAmount
+    const domainMax = max + paddingAmount
+    
+    return [domainMin, domainMax]
+  }
+
+  // Calculate domains for each chart type
+  const portfolioValueDomain = calculateYAxisDomain(historicalData, 'portfolioValue', 0.05)
+  const returnsDomain = calculateDualAxisDomain(historicalData, 'portfolioReturn', 'sp500Return', 0.15)
+
   // Custom tooltip for the chart
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -643,7 +687,16 @@ export function PortfolioPerformance({ accountInfo }: PortfolioPerformanceProps)
                   stroke="#9ca3af"
                 />
                 <YAxis 
-                  tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
+                  domain={portfolioValueDomain}
+                  tickFormatter={(value) => {
+                    if (value >= 1000000) {
+                      return `$${(value / 1000000).toFixed(1)}M`
+                    } else if (value >= 1000) {
+                      return `$${(value / 1000).toFixed(0)}k`
+                    } else {
+                      return `$${value.toFixed(0)}`
+                    }
+                  }}
                   stroke="#9ca3af"
                 />
                 <Tooltip content={<CustomTooltip />} />
@@ -666,7 +719,8 @@ export function PortfolioPerformance({ accountInfo }: PortfolioPerformanceProps)
                   stroke="#9ca3af"
                 />
                 <YAxis 
-                  tickFormatter={(value) => `${value}%`}
+                  domain={returnsDomain}
+                  tickFormatter={(value) => `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`}
                   stroke="#9ca3af"
                 />
                 <Tooltip content={<CustomTooltip />} />
@@ -699,7 +753,8 @@ export function PortfolioPerformance({ accountInfo }: PortfolioPerformanceProps)
                   stroke="#9ca3af"
                 />
                 <YAxis 
-                  tickFormatter={(value) => `${value}%`}
+                  domain={returnsDomain}
+                  tickFormatter={(value) => `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`}
                   stroke="#9ca3af"
                 />
                 <Tooltip content={<CustomTooltip />} />

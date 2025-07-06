@@ -157,17 +157,21 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
     }
   }
 
-  // Modern color palette
+  // Rainbow color palette
   function getPositionColor(index: number): string {
     const colors = [
-      '#000000', // Black
-      '#374151', // Gray-700
-      '#6B7280', // Gray-500
-      '#9CA3AF', // Gray-400
-      '#D1D5DB', // Gray-300
-      '#E5E7EB', // Gray-200
-      '#F3F4F6', // Gray-100
-      '#F9FAFB', // Gray-50
+      '#FF6B6B', // Coral Red
+      '#4ECDC4', // Turquoise
+      '#45B7D1', // Sky Blue
+      '#96CEB4', // Mint Green
+      '#FFEAA7', // Warm Yellow
+      '#DDA0DD', // Plum
+      '#98D8C8', // Seafoam
+      '#F7DC6F', // Golden Yellow
+      '#BB8FCE', // Lavender
+      '#85C1E9', // Light Blue
+      '#F8C471', // Peach
+      '#82E0AA', // Light Green
     ]
     return colors[index % colors.length]
   }
