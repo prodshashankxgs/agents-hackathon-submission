@@ -310,15 +310,24 @@ app.post('/api/advanced/analyze', async (req, res) => {
       return res.status(400).json({ error: 'Invalid analysis intent' });
     }
 
-    // Get market data for requested symbols
+    // Get market data for requested symbols in parallel
     const marketData: any = {};
-    for (const symbol of intent.symbols) {
+    const marketDataPromises = intent.symbols.map(async (symbol: string) => {
       try {
-        marketData[symbol] = await broker.getMarketData(symbol);
+        const data = await broker.getMarketData(symbol);
+        return { symbol, data };
       } catch (error) {
         console.log(`Could not fetch data for ${symbol}`);
+        return { symbol, data: null };
       }
-    }
+    });
+    
+    const marketDataResults = await Promise.all(marketDataPromises);
+    marketDataResults.forEach(({ symbol, data }) => {
+      if (data) {
+        marketData[symbol] = data;
+      }
+    });
 
     const analyses = await advancedTrading.performMarketAnalysis(intent, marketData);
     

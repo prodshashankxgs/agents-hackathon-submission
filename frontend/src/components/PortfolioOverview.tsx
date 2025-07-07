@@ -8,7 +8,6 @@ import {
   ArrowUpIcon,
   ArrowDownIcon,
   ActivityIcon,
-  WalletIcon,
   EyeIcon,
   EyeOffIcon,
   ChevronDownIcon,
@@ -17,38 +16,24 @@ import {
   DownloadIcon,
   MoreVerticalIcon,
   MinusIcon,
-  TrendingDownIcon
+  TrendingDownIcon,
+  WalletIcon
 } from 'lucide-react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { formatCurrency, formatPercentage } from '@/lib/utils'
+import { usePositionSorting } from '../hooks/usePositionSorting'
+import type { AccountInfo } from '../lib/api'
 
-interface AccountInfo {
-  accountId: string
-  buyingPower: number
-  portfolioValue: number
-  dayTradeCount: number
-  positions: Array<{
-    symbol: string
-    quantity: number
-    marketValue: number
-    costBasis: number
-    unrealizedPnL: number
-    side: 'long' | 'short'
-  }>
-}
 
 interface PortfolioOverviewProps {
   accountInfo: AccountInfo | undefined
 }
 
-type SortField = 'symbol' | 'quantity' | 'marketValue' | 'unrealizedPnL' | 'pnlPercent'
-type SortDirection = 'asc' | 'desc'
 
 export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
   const [showValues, setShowValues] = useState(true)
   const [selectedMetric, setSelectedMetric] = useState<number | null>(null)
-  const [sortField, setSortField] = useState<SortField>('marketValue')
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
+  const { sortedPositions, sortConfig, handleSort } = usePositionSorting(accountInfo?.positions || [])
   const [selectedPositions, setSelectedPositions] = useState<string[]>([])
 
   if (!accountInfo) {
@@ -81,49 +66,18 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
   const totalPnLPercent = totalCostBasis > 0 ? (totalPnL / totalCostBasis) * 100 : 0
   const totalValue = accountInfo.positions.reduce((sum, pos) => sum + pos.marketValue, 0)
 
-  // Calculate sorted positions
-  const sortedPositions = useMemo(() => {
-    return [...accountInfo.positions].sort((a, b) => {
-      let aValue: number
-      let bValue: number
-
-      switch (sortField) {
-        case 'symbol':
-          return sortDirection === 'asc' 
-            ? a.symbol.localeCompare(b.symbol)
-            : b.symbol.localeCompare(a.symbol)
-        case 'quantity':
-          aValue = a.quantity
-          bValue = b.quantity
-          break
-        case 'marketValue':
-          aValue = a.marketValue
-          bValue = b.marketValue
-          break
-        case 'unrealizedPnL':
-          aValue = a.unrealizedPnL
-          bValue = b.unrealizedPnL
-          break
-        case 'pnlPercent':
-          aValue = ((a.marketValue / a.quantity - a.costBasis / a.quantity) / (a.costBasis / a.quantity)) * 100
-          bValue = ((b.marketValue / b.quantity - b.costBasis / b.quantity) / (b.costBasis / b.quantity)) * 100
-          break
-        default:
-          return 0
-      }
-
-      return sortDirection === 'asc' ? aValue - bValue : bValue - aValue
-    })
-  }, [accountInfo.positions, sortField, sortDirection])
-
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortField(field)
-      setSortDirection('desc')
-    }
-  }
+  // Calculate position breakdown with memoization
+  const positionBreakdown = useMemo(() => {
+    if (!accountInfo || accountInfo.portfolioValue === 0) return []
+    
+    return accountInfo.positions.map(pos => ({
+      symbol: pos.symbol,
+      percentage: (pos.marketValue / accountInfo.portfolioValue) * 100,
+      value: pos.marketValue,
+      pnl: pos.unrealizedPnL,
+      pnlPercent: pos.costBasis > 0 ? (pos.unrealizedPnL / pos.costBasis) * 100 : 0
+    })).sort((a, b) => b.percentage - a.percentage)
+  }, [accountInfo])
 
   const togglePositionSelection = (symbol: string) => {
     setSelectedPositions(prev => 
@@ -173,54 +127,53 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
     }
   ]
 
-  const positionBreakdown = accountInfo.positions.map(pos => ({
-    symbol: pos.symbol,
-    percentage: accountInfo.portfolioValue > 0 ? (pos.marketValue / accountInfo.portfolioValue) * 100 : 0,
-    value: pos.marketValue,
-    pnl: pos.unrealizedPnL,
-    pnlPercent: pos.costBasis > 0 ? (pos.unrealizedPnL / pos.costBasis) * 100 : 0
-  })).sort((a, b) => b.percentage - a.percentage)
-
   // Prepare data for pie chart with modern colors
-  const pieChartData = positionBreakdown.slice(0, 8).map((position, index) => ({
-    name: position.symbol,
-    value: position.percentage,
-    marketValue: position.value,
-    pnl: position.pnl,
-    pnlPercent: position.pnlPercent,
-    color: getPositionColor(index)
-  }))
-
-  // If there are more than 8 positions, group the rest as "Others"
-  if (positionBreakdown.length > 8) {
-    const othersPercentage = positionBreakdown.slice(8).reduce((sum, pos) => sum + pos.percentage, 0)
-    const othersValue = positionBreakdown.slice(8).reduce((sum, pos) => sum + pos.value, 0)
-    const othersPnL = positionBreakdown.slice(8).reduce((sum, pos) => sum + pos.pnl, 0)
+  // Memoize expensive pie chart data calculation
+  const pieChartData = useMemo(() => {
+    if (!positionBreakdown.length) return []
     
-    pieChartData.push({
-      name: 'Others',
-      value: othersPercentage,
-      marketValue: othersValue,
-      pnl: othersPnL,
-      pnlPercent: 0,
-      color: '#9CA3AF'
-    })
-  }
+    const chartData = positionBreakdown.slice(0, 8).map((position, index) => ({
+      name: position.symbol,
+      value: position.percentage,
+      marketValue: position.value,
+      pnl: position.pnl,
+      pnlPercent: position.pnlPercent,
+      color: getPositionColor(index)
+    }))
 
-  // Add cash position if there's available buying power
-  if (accountInfo.buyingPower > 0) {
-    const cashPercentage = accountInfo.portfolioValue > 0 ? (accountInfo.buyingPower / accountInfo.portfolioValue) * 100 : 0
-    if (cashPercentage > 0.5) {
-      pieChartData.push({
-        name: 'Cash',
-        value: cashPercentage,
-        marketValue: accountInfo.buyingPower,
-        pnl: 0,
+    // If there are more than 8 positions, group the rest as "Others"
+    if (positionBreakdown.length > 8) {
+      const othersPercentage = positionBreakdown.slice(8).reduce((sum, pos) => sum + pos.percentage, 0)
+      const othersValue = positionBreakdown.slice(8).reduce((sum, pos) => sum + pos.value, 0)
+      const othersPnL = positionBreakdown.slice(8).reduce((sum, pos) => sum + pos.pnl, 0)
+      
+      chartData.push({
+        name: 'Others',
+        value: othersPercentage,
+        marketValue: othersValue,
+        pnl: othersPnL,
         pnlPercent: 0,
-        color: '#10B981'
+        color: '#9CA3AF'
       })
     }
-  }
+
+    // Add cash position if there's available buying power
+    if (accountInfo && accountInfo.buyingPower > 0) {
+      const cashPercentage = accountInfo.portfolioValue > 0 ? (accountInfo.buyingPower / accountInfo.portfolioValue) * 100 : 0
+      if (cashPercentage > 0.5) {
+        chartData.push({
+          name: 'Cash',
+          value: cashPercentage,
+          marketValue: accountInfo.buyingPower,
+          pnl: 0,
+          pnlPercent: 0,
+          color: '#10B981'
+        })
+      }
+    }
+    
+    return chartData
+  }, [positionBreakdown, accountInfo?.buyingPower, accountInfo?.portfolioValue])
 
   // Rainbow color palette
   function getPositionColor(index: number): string {
@@ -622,8 +575,8 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
                 >
                   <div className="flex items-center space-x-1">
                     <span>Symbol</span>
-                    {sortField === 'symbol' && (
-                      sortDirection === 'asc' ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />
+                    {sortConfig.field === 'symbol' && (
+                      sortConfig.direction === 'asc' ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />
                     )}
                   </div>
                 </th>
@@ -633,8 +586,8 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
                 >
                   <div className="flex items-center space-x-1">
                     <span>Quantity</span>
-                    {sortField === 'quantity' && (
-                      sortDirection === 'asc' ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />
+                    {sortConfig.field === 'quantity' && (
+                      sortConfig.direction === 'asc' ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />
                     )}
                   </div>
                 </th>
@@ -650,8 +603,8 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
                 >
                   <div className="flex items-center space-x-1">
                     <span>Market Value</span>
-                    {sortField === 'marketValue' && (
-                      sortDirection === 'asc' ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />
+                    {sortConfig.field === 'marketValue' && (
+                      sortConfig.direction === 'asc' ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />
                     )}
                   </div>
                 </th>
@@ -661,19 +614,19 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
                 >
                   <div className="flex items-center space-x-1">
                     <span>P&L</span>
-                    {sortField === 'unrealizedPnL' && (
-                      sortDirection === 'asc' ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />
+                    {sortConfig.field === 'unrealizedPnL' && (
+                      sortConfig.direction === 'asc' ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />
                     )}
                   </div>
                 </th>
                 <th 
                   className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
-                  onClick={() => handleSort('pnlPercent')}
+                  onClick={() => handleSort('costBasis')}
                 >
                   <div className="flex items-center space-x-1">
                     <span>P&L %</span>
-                    {sortField === 'pnlPercent' && (
-                      sortDirection === 'asc' ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />
+                    {sortConfig.field === 'costBasis' && (
+                      sortConfig.direction === 'asc' ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />
                     )}
                   </div>
                 </th>
