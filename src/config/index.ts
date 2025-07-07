@@ -8,7 +8,7 @@ dotenv.config({ path: path.join(__dirname, '../../.env') });
 // Debug: Log environment variable loading
 console.log('🔍 Environment variables debug:');
 console.log('Current working directory:', process.cwd());
-console.log('ANTHROPIC_API_KEY exists:', !!process.env.ANTHROPIC_API_KEY);
+console.log('OPENAI_API_KEY exists:', !!process.env.OPENAI_API_KEY);
 console.log('ALPACA_API_KEY exists:', !!process.env.ALPACA_API_KEY);
 
 export function loadConfig(): AppConfig {
@@ -17,7 +17,7 @@ export function loadConfig(): AppConfig {
   // In development, provide helpful instructions if env vars are missing
   if (isDevelopment) {
     const missingVars = [];
-    if (!process.env.ANTHROPIC_API_KEY) missingVars.push('ANTHROPIC_API_KEY');
+    if (!process.env.OPENAI_API_KEY) missingVars.push('OPENAI_API_KEY');
     if (!process.env.ALPACA_API_KEY) missingVars.push('ALPACA_API_KEY');
     if (!process.env.ALPACA_SECRET_KEY) missingVars.push('ALPACA_SECRET_KEY');
     
@@ -25,13 +25,13 @@ export function loadConfig(): AppConfig {
       console.warn('\n⚠️  Missing environment variables:', missingVars.join(', '));
       console.warn('\n📝 To fix this, create a .env file in the root directory with:');
       console.warn('----------------------------------------');
-      console.warn('ANTHROPIC_API_KEY=your_anthropic_api_key');
+      console.warn('OPENAI_API_KEY=your_openai_api_key');
       console.warn('ALPACA_API_KEY=your_alpaca_api_key');
       console.warn('ALPACA_SECRET_KEY=your_alpaca_secret_key');
       console.warn('ALPACA_BASE_URL=https://paper-api.alpaca.markets');
       console.warn('----------------------------------------');
       console.warn('\n🔗 Get your API keys from:');
-      console.warn('   - Anthropic: https://console.anthropic.com/');
+      console.warn('   - OpenAI: https://platform.openai.com/api-keys');
       console.warn('   - Alpaca: https://app.alpaca.markets/');
       console.warn('\n⚡ Running in development mode with mock values...\n');
     }
@@ -39,7 +39,7 @@ export function loadConfig(): AppConfig {
 
   // In production, require all environment variables
   const requiredEnvVars = [
-    'ANTHROPIC_API_KEY',
+    'OPENAI_API_KEY',
     'ALPACA_API_KEY',
     'ALPACA_SECRET_KEY'
   ];
@@ -53,8 +53,8 @@ export function loadConfig(): AppConfig {
   }
 
   return {
-    openaiApiKey: process.env.OPENAI_API_KEY || '', // Keep for backward compatibility
-    anthropicApiKey: process.env.ANTHROPIC_API_KEY || (isDevelopment ? 'development-mock-key' : ''),
+    openaiApiKey: process.env.OPENAI_API_KEY || (isDevelopment ? 'development-mock-key' : ''),
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY || '', // Keep for backward compatibility
     alpacaApiKey: process.env.ALPACA_API_KEY || (isDevelopment ? 'development-mock-key' : ''),
     alpacaSecretKey: process.env.ALPACA_SECRET_KEY || (isDevelopment ? 'development-mock-secret' : ''),
     alpacaBaseUrl: process.env.ALPACA_BASE_URL || 'https://paper-api.alpaca.markets',

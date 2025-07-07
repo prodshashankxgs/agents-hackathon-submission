@@ -1,6 +1,6 @@
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { ClaudeService } from '../llm/claude-service';
+import { OpenAIService } from '../llm/openai-service';
 import { AdvancedTradingService } from '../llm/advanced-trading-service';
 import { AlpacaAdapter } from '../brokers/alpaca-adapter';
 import { ValidationService } from '../trading/validation-service';
@@ -13,14 +13,14 @@ interface ChatContext {
 }
 
 export class TradingChatbot {
-  private claudeService: ClaudeService;
+  private openaiService: OpenAIService;
   private advancedTrading: AdvancedTradingService;
   private broker: AlpacaAdapter;
   private validator: ValidationService;
   private context: ChatContext;
 
   constructor() {
-    this.claudeService = new ClaudeService();
+    this.openaiService = new OpenAIService();
     this.advancedTrading = new AdvancedTradingService();
     this.broker = new AlpacaAdapter();
     this.validator = new ValidationService(this.broker);
@@ -135,7 +135,7 @@ export class TradingChatbot {
     try {
       // Parse the trade intent
       console.log(chalk.gray('Let me process your trade request...'));
-      const intent = await this.claudeService.parseTradeIntent(message);
+      const intent = await this.openaiService.parseTradeIntent(message);
       
       // Show what we understood
       console.log(`\nI understand you want to ${intent.action} ${intent.amountType === 'dollars' ? '$' + intent.amount : intent.amount + ' shares'} of ${intent.symbol}.`);
@@ -284,7 +284,7 @@ export class TradingChatbot {
   private async handleGeneralQuery(message: string): Promise<void> {
     try {
       // Use Claude to generate a helpful response
-      const response = await this.claudeService.generateResponse(message, {
+      const response = await this.openaiService.generateResponse(message, {
         accountInfo: this.context.accountInfo,
         conversationHistory: this.context.conversationHistory
       });

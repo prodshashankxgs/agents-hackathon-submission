@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { config } from '../config';
 import { TradeIntent, LLMError } from '../types';
+import { cacheService } from '../cache/cache-service';
 
 export class OpenAIService {
   private openai: OpenAI;
@@ -16,8 +17,15 @@ export class OpenAIService {
    */
   async parseTradeIntent(userInput: string): Promise<TradeIntent> {
     try {
-      // Preprocess the input to normalize common variations
       const normalizedInput = this.preprocessInput(userInput);
+      
+      // Check cache first
+      const inputHash = cacheService.createHash(normalizedInput);
+      const cached = cacheService.getParsedIntent(inputHash);
+      if (cached) {
+        return cached;
+      }
+
       const tools: OpenAI.ChatCompletionTool[] = [{
         type: 'function',
         function: {
@@ -101,7 +109,7 @@ Always prioritize understanding the user's intent over strict pattern matching.`
       ];
 
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4-0125-preview',
+        model: 'gpt-4o-mini',
         messages,
         tools,
         tool_choice: 'auto',
@@ -149,6 +157,9 @@ Always prioritize understanding the user's intent over strict pattern matching.`
 
       // Validate the parsed intent
       this.validateTradeIntent(tradeIntent);
+
+      // Cache the parsed intent
+      cacheService.setParsedIntent(inputHash, normalizedInput, tradeIntent);
 
       return tradeIntent;
     } catch (error) {
@@ -214,7 +225,75 @@ Always prioritize understanding the user's intent over strict pattern matching.`
     // Normalize whitespace
     normalized = normalized.replace(/\s+/g, ' ').trim();
     
-    // Don't lowercase - let GPT handle case sensitivity for company names
     return normalized;
+  }
+
+  /**
+   * Generate conversational responses for general queries
+   */
+  async generateResponse(
+    message: string, 
+    context?: { 
+      accountInfo?: any; 
+      conversationHistory?: Array<{ role: string; content: string }> 
+    }
+  ): Promise<string> {
+    try {
+      const contextInfo = context?.accountInfo 
+        ? `Current context: User has $${context.accountInfo.buyingPower?.toFixed(2) || 'unknown'} buying power.`
+        : '';
+
+      const conversationContext = context?.conversationHistory?.slice(-5)
+        .map(msg => `${msg.role}: ${msg.content}`)
+        .join('\n') || '';
+
+      const messages: OpenAI.ChatCompletionMessageParam[] = [
+        {
+          role: 'system',
+          content: `You are a helpful trading assistant. You can help users execute trades, check their account, and answer questions about the stock market.
+
+Keep responses concise and friendly. If asked about specific trades, remind them to use clear commands like "buy $100 of AAPL".
+
+${contextInfo}`
+        }
+      ];
+
+      // Add conversation history if available
+      if (conversationContext) {
+        messages.push({
+          role: 'assistant',
+          content: `Recent conversation context:\n${conversationContext}`
+        });
+      }
+
+      messages.push({
+        role: 'user',
+        content: message
+      });
+
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages,
+        temperature: 0.1,
+        max_tokens: 500
+      });
+
+      const content = response.choices[0]?.message?.content;
+      
+      if (!content) {
+        throw new LLMError('Empty response from OpenAI');
+      }
+
+      return content;
+    } catch (error) {
+      if (error instanceof LLMError) {
+        throw error;
+      }
+      
+      throw new LLMError('Failed to generate response', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        userInput: message
+      });
+    }
   }
 } 

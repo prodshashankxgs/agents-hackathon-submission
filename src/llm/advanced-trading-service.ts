@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { config } from '../config';
 import { 
   AdvancedTradeIntent, 
@@ -13,19 +13,19 @@ import {
   AccountInfo,
   Position
 } from '../types';
-import { ClaudeService } from './claude-service';
+import { OpenAIService } from './openai-service';
 
 export class AdvancedTradingService {
-  private anthropic: Anthropic;
-  private basicService: ClaudeService;
+  private openai: OpenAI;
+  private basicService: OpenAIService;
   private intentCache = new Map<string, { intent: AdvancedTradeIntent; timestamp: number }>();
   private readonly CACHE_TTL = 10 * 60 * 1000; // 10 minutes (increased for better performance)
 
   constructor() {
-    this.anthropic = new Anthropic({
-      apiKey: config.anthropicApiKey,
+    this.openai = new OpenAI({
+      apiKey: config.openaiApiKey,
     });
-    this.basicService = new ClaudeService();
+    this.basicService = new OpenAIService();
   }
 
   /**
@@ -133,7 +133,10 @@ export class AdvancedTradingService {
    * Classify user intent using LLM
    */
   private async classifyIntent(userInput: string): Promise<string> {
-    const prompt = `Classify this trading request into one of these categories:
+    const messages: OpenAI.ChatCompletionMessageParam[] = [
+      {
+        role: 'system',
+        content: `Classify this trading request into one of these categories:
 - "trade": Simple buy/sell orders
 - "hedge": Hedging or risk management requests
 - "analysis": Market analysis or technical/fundamental analysis
@@ -141,25 +144,24 @@ export class AdvancedTradingService {
 - "13f": Questions about institutional holdings or 13F filings
 - "copytrade": Copy trading politicians or specific investors
 
-User request: "${userInput}"
+Respond with just the category name (e.g., "trade", "hedge", etc.)`
+      },
+      {
+        role: 'user',
+        content: userInput
+      }
+    ];
 
-Respond with just the category name (e.g., "trade", "hedge", etc.)`;
-
-    const response = await this.anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages,
       max_tokens: 50,
-      temperature: 0,
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
+      temperature: 0
     });
 
-    const content = response.content[0];
-    if (content && content.type === 'text') {
-      return (content as any).text.trim().toLowerCase();
+    const content = response.choices[0]?.message?.content;
+    if (content) {
+      return content.trim().toLowerCase();
     }
     
     return 'trade'; // Default fallback
@@ -174,8 +176,10 @@ Respond with just the category name (e.g., "trade", "hedge", etc.)`;
           `${p.symbol}: ${p.quantity} shares`).join(', ')}`
       : '';
 
-    const prompt = `Parse this hedging request and extract the key information.
-User request: "${userInput}"${positionsContext}
+    const messages: OpenAI.ChatCompletionMessageParam[] = [
+      {
+        role: 'system',
+        content: `Parse this hedging request and extract the key information.
 
 Respond with a JSON object containing:
 {
@@ -185,38 +189,34 @@ Respond with a JSON object containing:
   "risk_tolerance": "conservative" | "moderate" | "aggressive"
 }
 
-If timeframe or risk_tolerance aren't specified, use reasonable defaults.`;
+If timeframe or risk_tolerance aren't specified, use reasonable defaults.`
+      },
+      {
+        role: 'user',
+        content: `${userInput}${positionsContext}`
+      }
+    ];
 
-    const response = await this.anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages,
       max_tokens: 300,
-      temperature: 0.1,
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
+      temperature: 0.1
     });
 
-    if (!response.content || response.content.length === 0) {
-      throw new LLMError('Empty hedge parsing response from Claude');
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new LLMError('Empty response from OpenAI');
     }
 
-    const content = response.content[0];
-    if (!content || content.type !== 'text') {
-      throw new LLMError('Unexpected hedge parsing response type from Claude');
-    }
-
-    const textContent = content as { type: 'text'; text: string };
-    const parsed = this.extractJSON(textContent.text);
-
+    const parsed = this.extractJSON(content);
+    
     return {
       type: 'hedge',
       primarySymbol: parsed.primary_symbol,
       hedgeReason: parsed.hedge_reason,
-      timeframe: parsed.timeframe || '1 month',
-      riskTolerance: parsed.risk_tolerance || 'moderate'
+      timeframe: parsed.timeframe,
+      riskTolerance: parsed.risk_tolerance
     };
   }
 
@@ -224,8 +224,10 @@ If timeframe or risk_tolerance aren't specified, use reasonable defaults.`;
    * Parse market analysis intent from natural language
    */
   private async parseAnalysisIntent(userInput: string): Promise<MarketAnalysisIntent> {
-    const prompt = `Parse this market analysis request and extract the key information.
-User request: "${userInput}"
+    const messages: OpenAI.ChatCompletionMessageParam[] = [
+      {
+        role: 'system',
+        content: `Parse this market analysis request and extract the key information.
 
 Respond with a JSON object containing:
 {
@@ -235,31 +237,27 @@ Respond with a JSON object containing:
   "focus_areas": ["area1", "area2"] // e.g., ["earnings", "competition", "sector trends"]
 }
 
-Extract all relevant stock symbols mentioned. If no specific timeframe is given, use "1 month".`;
+Extract all relevant stock symbols mentioned. If no specific timeframe is given, use "1 month".`
+      },
+      {
+        role: 'user',
+        content: userInput
+      }
+    ];
 
-    const response = await this.anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages,
       max_tokens: 300,
-      temperature: 0.1,
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
+      temperature: 0.1
     });
 
-    if (!response.content || response.content.length === 0) {
-      throw new LLMError('Empty analysis parsing response from Claude');
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new LLMError('Empty response from OpenAI');
     }
 
-    const content = response.content[0];
-    if (!content || content.type !== 'text') {
-      throw new LLMError('Unexpected analysis parsing response type from Claude');
-    }
-
-    const textContent = content as { type: 'text'; text: string };
-    const parsed = this.extractJSON(textContent.text);
+    const parsed = this.extractJSON(content);
 
     return {
       type: 'analysis',
@@ -274,8 +272,10 @@ Extract all relevant stock symbols mentioned. If no specific timeframe is given,
    * Parse 13F intent from natural language
    */
   private async parse13FIntent(userInput: string): Promise<ThirteenFIntent> {
-    const prompt = `Parse this 13F/institutional holdings request and extract the key information.
-User request: "${userInput}"
+    const messages: OpenAI.ChatCompletionMessageParam[] = [
+      {
+        role: 'system',
+        content: `Parse this 13F/institutional holdings request and extract the key information.
 
 Respond with a JSON object containing:
 {
@@ -285,31 +285,27 @@ Respond with a JSON object containing:
 }
 
 If the user is asking about holdings/13F without mentioning investment, use action "query".
-If they want to invest or copy the portfolio, use action "invest".`;
+If they want to invest or copy the portfolio, use action "invest".`
+      },
+      {
+        role: 'user',
+        content: userInput
+      }
+    ];
 
-    const response = await this.anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages,
       max_tokens: 300,
-      temperature: 0.1,
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
+      temperature: 0.1
     });
 
-    if (!response.content || response.content.length === 0) {
-      throw new LLMError('Empty 13F parsing response from Claude');
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new LLMError('Empty response from OpenAI');
     }
 
-    const content = response.content[0];
-    if (!content || content.type !== 'text') {
-      throw new LLMError('Unexpected 13F parsing response type from Claude');
-    }
-
-    const textContent = content as { type: 'text'; text: string };
-    const parsed = this.extractJSON(textContent.text);
+    const parsed = this.extractJSON(content);
 
     return {
       type: '13f',
@@ -323,8 +319,10 @@ If they want to invest or copy the portfolio, use action "invest".`;
    * Parse trade recommendation intent from natural language
    */
   private async parseRecommendationIntent(userInput: string): Promise<TradeRecommendationIntent> {
-    const prompt = `Parse this trade recommendation request and extract the key information.
-User request: "${userInput}"
+    const messages: OpenAI.ChatCompletionMessageParam[] = [
+      {
+        role: 'system',
+        content: `Parse this trade recommendation request and extract the key information.
 
 Respond with a JSON object containing:
 {
@@ -336,31 +334,27 @@ Respond with a JSON object containing:
   "strategy_type": "growth" | "value" | "income" | "momentum" | "general"
 }
 
-If specific details aren't mentioned, use reasonable defaults or null.`;
+If specific details aren't mentioned, use reasonable defaults or null.`
+      },
+      {
+        role: 'user',
+        content: userInput
+      }
+    ];
 
-    const response = await this.anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages,
       max_tokens: 300,
-      temperature: 0.1,
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
+      temperature: 0.1
     });
 
-    if (!response.content || response.content.length === 0) {
-      throw new LLMError('Empty recommendation parsing response from Claude');
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new LLMError('Empty response from OpenAI');
     }
 
-    const content = response.content[0];
-    if (!content || content.type !== 'text') {
-      throw new LLMError('Unexpected recommendation parsing response type from Claude');
-    }
-
-    const textContent = content as { type: 'text'; text: string };
-    const parsed = this.extractJSON(textContent.text);
+    const parsed = this.extractJSON(content);
 
     return {
       type: 'recommendation',
@@ -380,7 +374,10 @@ If specific details aren't mentioned, use reasonable defaults or null.`;
     hedgeIntent: HedgeIntent, 
     marketData: any
   ): Promise<HedgeRecommendation> {
-    const prompt = `You are an expert financial advisor specializing in risk management and hedging strategies.
+    const messages: OpenAI.ChatCompletionMessageParam[] = [
+      {
+        role: 'system',
+        content: `You are an expert financial advisor specializing in risk management and hedging strategies.
 
 Generate a comprehensive hedging recommendation for:
 - Primary Position: ${hedgeIntent.primarySymbol}
@@ -414,31 +411,27 @@ Respond with a JSON object:
   "risk_reduction": number,
   "exit_conditions": ["condition1", "condition2"],
   "timeline": "expected timeline for the hedge"
-}`;
+}`
+      },
+      {
+        role: 'user',
+        content: `Please provide a hedge recommendation for ${hedgeIntent.primarySymbol} based on the parameters above.`
+      }
+    ];
 
-    const response = await this.anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages,
       max_tokens: 1000,
-      temperature: 0.2,
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
+      temperature: 0.2
     });
 
-    if (!response.content || response.content.length === 0) {
-      throw new LLMError('Empty hedge recommendation response from Claude');
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new LLMError('Empty response from OpenAI');
     }
 
-    const content = response.content[0];
-    if (!content || content.type !== 'text') {
-      throw new LLMError('Unexpected hedge recommendation response type from Claude');
-    }
-
-    const textContent = content as { type: 'text'; text: string };
-    const parsed = this.extractJSON(textContent.text);
+    const parsed = this.extractJSON(content);
 
     return {
       strategy: parsed.strategy,
@@ -451,14 +444,17 @@ Respond with a JSON object:
   }
 
   /**
-   * Perform market analysis using Claude
+   * Perform market analysis using OpenAI
    */
   async performMarketAnalysis(
     analysisIntent: MarketAnalysisIntent,
     marketData: any
   ): Promise<MarketAnalysis[]> {
     const analysisPromises = analysisIntent.symbols.map(async (symbol) => {
-      const prompt = `You are an expert financial analyst. Perform a ${analysisIntent.analysisType} analysis for ${symbol}.
+      const messages: OpenAI.ChatCompletionMessageParam[] = [
+        {
+          role: 'system',
+          content: `You are an expert financial analyst. Perform a ${analysisIntent.analysisType} analysis for ${symbol}.
 
 Analysis parameters:
 - Symbol: ${symbol}
@@ -484,31 +480,27 @@ Respond with a JSON object:
   "price_target": number,
   "recommendation": "buy" | "sell" | "hold",
   "reasoning": "detailed reasoning for the recommendation"
-}`;
+}`
+        },
+        {
+          role: 'user',
+          content: `Please analyze ${symbol} based on the parameters above.`
+        }
+      ];
 
-      const response = await this.anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages,
         max_tokens: 800,
-        temperature: 0.2,
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ]
+        temperature: 0.2
       });
 
-      if (!response.content || response.content.length === 0) {
-        throw new LLMError(`Empty market analysis response from Claude for ${symbol}`);
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        throw new LLMError(`Empty market analysis response from OpenAI for ${symbol}`);
       }
 
-      const content = response.content[0];
-      if (!content || content.type !== 'text') {
-        throw new LLMError(`Unexpected market analysis response type from Claude for ${symbol}`);
-      }
-
-      const textContent = content as { type: 'text'; text: string };
-      const parsed = this.extractJSON(textContent.text);
+      const parsed = this.extractJSON(content);
 
       return {
         symbol: parsed.symbol,
@@ -526,7 +518,7 @@ Respond with a JSON object:
   }
 
   /**
-   * Generate trade recommendations using Claude
+   * Generate trade recommendations using OpenAI
    */
   async generateTradeRecommendations(
     intent: TradeRecommendationIntent,
@@ -538,7 +530,10 @@ Account Information:
 - Day Trading Power: $${accountInfo.dayTradingBuyingPower?.toFixed(2) || 'unknown'}
 - Current Positions: ${accountInfo.positions?.map(p => `${p.symbol}: ${p.quantity} shares`).join(', ') || 'None'}`;
 
-    const prompt = `You are an expert financial advisor providing personalized trading recommendations.
+    const messages: OpenAI.ChatCompletionMessageParam[] = [
+      {
+        role: 'system',
+        content: `You are an expert financial advisor providing personalized trading recommendations.
 
 Request Details:
 - Scenario: ${intent.scenario}
@@ -581,40 +576,37 @@ Respond with a JSON object:
     "exit_strategy": "exit strategy details"
   },
   "market_outlook": "overall market outlook and timing"
-}`;
+}`
+      },
+      {
+        role: 'user',
+        content: `Please provide trading recommendations based on the parameters above.`
+      }
+    ];
 
-    const response = await this.anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages,
       max_tokens: 1200,
-      temperature: 0.2,
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
+      temperature: 0.2
     });
 
-    if (!response.content || response.content.length === 0) {
-      throw new LLMError('Empty trade recommendations response from Claude');
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new LLMError('Empty response from OpenAI');
     }
 
-    const content = response.content[0];
-    if (!content || content.type !== 'text') {
-      throw new LLMError('Unexpected trade recommendations response type from Claude');
-    }
-
-    const textContent = content as { type: 'text'; text: string };
-    return this.extractJSON(textContent.text);
+    return this.extractJSON(content);
   }
 
   /**
    * Parse copytrade intent from natural language
    */
   private async parseCopyTradeIntent(userInput: string): Promise<CopyTradeIntent> {
-    const prompt = `Parse this copytrade request and extract the politician name and action.
-
-User request: "${userInput}"
+    const messages: OpenAI.ChatCompletionMessageParam[] = [
+      {
+        role: 'system',
+        content: `Parse this copytrade request and extract the politician name and action.
 
 Extract:
 - politician: The politician's name (e.g., "Nancy Pelosi", "Paul Pelosi", "Dan Crenshaw")
@@ -629,30 +621,26 @@ Respond with JSON only:
   "action": "query" or "invest",
   "investmentAmount": number or null,
   "timeframe": "timeframe" or null
-}`;
+}`
+      },
+      {
+        role: 'user',
+        content: userInput
+      }
+    ];
 
-    const response = await this.anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages,
       max_tokens: 200,
-      temperature: 0,
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
+      temperature: 0
     });
 
-    if (!response.content || response.content.length === 0) {
-      throw new LLMError('Empty copytrade intent response from Claude');
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new LLMError('Empty response from OpenAI');
     }
 
-    const content = response.content[0];
-    if (!content || content.type !== 'text') {
-      throw new LLMError('Unexpected copytrade intent response type from Claude');
-    }
-
-    const textContent = content as { type: 'text'; text: string };
-    return this.extractJSON(textContent.text);
+    return this.extractJSON(content);
   }
 } 

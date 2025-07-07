@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { WebSocket, WebSocketServer } from 'ws';
 import { config } from './config';
-import { ClaudeService } from './llm/claude-service';
+import { OpenAIService } from './llm/openai-service';
 import { AdvancedTradingService } from './llm/advanced-trading-service';
 import { AlpacaAdapter } from './brokers/alpaca-adapter';
 import { ValidationService } from './trading/validation-service';
@@ -21,7 +21,7 @@ app.use(express.json());
 app.use(performanceMiddleware);
 
 // Initialize services
-const claudeService = new ClaudeService();
+const openaiService = new OpenAIService();
 const advancedTrading = new AdvancedTradingService();
 const broker = new AlpacaAdapter();
 const validator = new ValidationService(broker);
@@ -32,8 +32,8 @@ const copyTradeService = new CopyTradeService(broker);
 if (config.nodeEnv === 'development') {
   console.log('\n🔧 Running in DEVELOPMENT mode');
   
-  if (config.anthropicApiKey === 'development-mock-key') {
-    console.warn('⚠️  Using mock Anthropic API key - AI features will not work');
+  if (config.openaiApiKey === 'development-mock-key') {
+    console.warn('⚠️  Using mock OpenAI API key - AI features will not work');
   }
   
   if (config.alpacaApiKey === 'development-mock-key') {
@@ -61,8 +61,8 @@ app.post('/api/trade/parse', async (req, res) => {
       return res.status(400).json({ error: 'Invalid input provided' });
     }
 
-    const intent = await claudeService.parseTradeIntent(input);
-    const summary = claudeService.generateTradeSummary(intent);
+    const intent = await openaiService.parseTradeIntent(input);
+    const summary = openaiService.generateTradeSummary(intent);
     
     return res.json({ intent, summary });
   } catch (error) {
@@ -644,8 +644,8 @@ app.post('/api/command/parse', async (req, res) => {
 
     console.log('🎯 Parsing command:', command);
 
-            // Use existing Claude service to parse the command
-        const intent = await claudeService.parseTradeIntent(command);
+            // Use existing OpenAI service to parse the command
+        const intent = await openaiService.parseTradeIntent(command);
     console.log('✅ Parsed intent:', JSON.stringify(intent, null, 2));
     
     // Extract errors and warnings
@@ -698,9 +698,9 @@ app.post('/api/command/execute', async (req, res) => {
 
     console.log('🎯 Executing command:', command);
 
-        // Parse the command using Claude
-        console.log('🤖 Parsing command with Claude...');
-        const intent = await claudeService.parseTradeIntent(command);
+        // Parse the command using OpenAI
+        console.log('🤖 Parsing command with OpenAI...');
+        const intent = await openaiService.parseTradeIntent(command);
         console.log('✅ Parsed intent:', JSON.stringify(intent, null, 2));
         
         // Validate the trade
