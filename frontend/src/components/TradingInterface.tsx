@@ -520,46 +520,28 @@ export function TradingInterface() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Main Input Card with modern design */}
-      <div className="brokerage-card p-8 relative overflow-hidden">
+      <div className="brokerage-card p-4 sm:p-6 lg:p-8 relative overflow-hidden">
         {/* Subtle gradient background */}
         <div className="absolute inset-0 bg-gradient-to-br from-gray-50/50 to-white opacity-50" />
         
         <div className="relative">
-          <div className="mb-6 flex items-start justify-between">
+          <div className="mb-4 sm:mb-6">
             <div>
-              <h2 className="text-2xl font-semibold text-gray-900 mb-2 flex items-center">
-                <div className="p-2 bg-gray-900 rounded-lg mr-3">
-                  <SparklesIcon className="w-5 h-5 text-white" />
+              <h2 className="text-lg sm:text-xl lg:text-2xl font-semibold text-gray-900 mb-1.5 sm:mb-2 flex items-center">
+                <div className="p-1.5 sm:p-2 bg-gray-900 rounded-lg mr-2 sm:mr-3">
+                  <SparklesIcon className="w-4 sm:w-5 h-4 sm:h-5 text-white" />
                 </div>
-                <span>AI Trading Assistant</span>
+                <span>Natural Language Trading Extension</span>
               </h2>
-              <p className="text-gray-600 text-sm leading-relaxed max-w-2xl">
+              <p className="text-gray-600 text-xs sm:text-sm leading-relaxed max-w-2xl">
                 Execute trades, analyze markets, hedge positions, or explore institutional portfolios using natural language.
               </p>
             </div>
-            <div className="flex items-center space-x-2">
-              <div className="group relative">
-                <button className="p-2 hover:bg-gray-100 rounded-lg transition-all duration-200">
-                  <InfoIcon className="w-4 h-4 text-gray-400 group-hover:text-gray-600" />
-                </button>
-                <div className="tooltip absolute right-0 top-full mt-2 w-64 opacity-0 group-hover:opacity-100 pointer-events-none">
-                  <div className="bg-gray-900 text-white text-xs rounded-lg p-3">
-                    <p className="font-medium mb-1">Quick Examples:</p>
-                    <ul className="space-y-1 text-gray-300">
-                      <li>• "Buy $1000 of AAPL"</li>
-                      <li>• "What is Bridgewater's 13F?"</li>
-                      <li>• "How to hedge my TSLA position?"</li>
-                      <li>• "Analyze NVDA market sentiment"</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
             <div className="relative group">
               <div className="absolute inset-0 bg-gradient-to-r from-gray-100 to-gray-200 rounded-xl opacity-0 group-focus-within:opacity-100 blur-xl transition-all duration-500" />
               <div className="relative">
@@ -569,20 +551,20 @@ export function TradingInterface() {
                   onChange={(e) => setCommand(e.target.value)}
                   onKeyPress={handleKeyPress}
                   placeholder='Try "Buy $5000 of AAPL" or "Show me Warren Buffett&apos;s portfolio"'
-                  className="brokerage-input w-full px-6 py-4 pr-14 text-base font-medium"
+                  className="brokerage-input w-full px-4 sm:px-6 py-3 sm:py-4 pr-10 sm:pr-14 text-sm sm:text-base font-medium"
                   disabled={isLoading}
                 />
                 
                 {/* Modern loading indicator */}
                 {isLoading && !showProcessingContainer && (
-                  <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-3">
-                    <div className="flex space-x-1">
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  <div className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 sm:gap-3">
+                    <div className="flex space-x-0.5 sm:space-x-1">
+                      <div className="w-1.5 sm:w-2 h-1.5 sm:h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <div className="w-1.5 sm:w-2 h-1.5 sm:h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <div className="w-1.5 sm:w-2 h-1.5 sm:h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                     </div>
                     {loadingMessage && (
-                      <span className="text-sm text-gray-500 font-medium animate-pulse">{loadingMessage}</span>
+                      <span className="hidden sm:inline text-xs sm:text-sm text-gray-500 font-medium animate-pulse">{loadingMessage}</span>
                     )}
                   </div>
                 )}
@@ -591,9 +573,9 @@ export function TradingInterface() {
                 {!isLoading && command.trim() && (
                   <button
                     type="submit"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 bg-gray-900 hover:bg-gray-800 rounded-full transition-all duration-200 hover:scale-105 group"
+                    className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 p-1 sm:p-1.5 bg-gray-900 hover:bg-gray-800 rounded-full transition-all duration-200 hover:scale-105 group"
                   >
-                    <ArrowUpIcon className="w-2.5 h-2.5 text-white group-hover:-translate-y-0.5 transition-transform" />
+                    <ArrowUpIcon className="w-2 sm:w-2.5 h-2 sm:h-2.5 text-white group-hover:-translate-y-0.5 transition-transform" />
                   </button>
                 )}
               </div>
@@ -601,20 +583,20 @@ export function TradingInterface() {
 
             {/* Single Line Processing Status */}
             {showProcessingContainer && (
-              <div className="glass-card p-4 relative overflow-hidden scale-in">
-                <div className="flex items-center space-x-3">
+              <div className="glass-card p-3 sm:p-4 relative overflow-hidden scale-in">
+                <div className="flex items-center space-x-2 sm:space-x-3">
                   <div className="flex-shrink-0">
-                    <div className={`p-2 rounded-lg transition-all duration-300 ${
+                    <div className={`p-1.5 sm:p-2 rounded-lg transition-all duration-300 ${
                       requestType === 'trade' ? 'bg-gray-900' :
                       requestType === 'hedge' ? 'bg-blue-600' :
                       requestType === 'analysis' ? 'bg-purple-600' :
                       requestType === 'recommendation' ? 'bg-amber-600' :
                       'bg-gray-600'
                     }`}>
-                      {requestType === 'trade' && <RocketIcon className="w-4 h-4 text-white" />}
-                      {requestType === 'hedge' && <ShieldCheckIcon className="w-4 h-4 text-white" />}
-                      {requestType === 'analysis' && <BrainCircuitIcon className="w-4 h-4 text-white" />}
-                      {requestType === 'recommendation' && <LightbulbIcon className="w-4 h-4 text-white" />}
+                      {requestType === 'trade' && <RocketIcon className="w-3 sm:w-4 h-3 sm:h-4 text-white" />}
+                      {requestType === 'hedge' && <ShieldCheckIcon className="w-3 sm:w-4 h-3 sm:h-4 text-white" />}
+                      {requestType === 'analysis' && <BrainCircuitIcon className="w-3 sm:w-4 h-3 sm:h-4 text-white" />}
+                      {requestType === 'recommendation' && <LightbulbIcon className="w-3 sm:w-4 h-3 sm:h-4 text-white" />}
                     </div>
                   </div>
                   

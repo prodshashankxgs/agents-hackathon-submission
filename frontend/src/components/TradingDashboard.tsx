@@ -2,7 +2,6 @@ import { useState, lazy, Suspense } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { 
   ActivityIcon,
-  BarChart3Icon,
   CreditCardIcon,
   DollarSignIcon, 
   PieChartIcon,
@@ -15,10 +14,10 @@ import {
   XIcon
 } from 'lucide-react'
 import { apiService } from '@/lib/api'
+import { formatCurrency } from '@/lib/utils'
 import { TradingInterface } from './TradingInterface'
 import { PortfolioOverview } from './PortfolioOverview'
 import { MarketStatus } from './MarketStatus'
-import { PositionsList } from './PositionsList'
 import { PortfolioBaskets } from './PortfolioBaskets'
 
 // Lazy load the PortfolioPerformance component since it includes heavy charting libraries
@@ -29,8 +28,7 @@ interface TradingDashboardProps {
 }
 
 export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
-  const [selectedTab, setSelectedTab] = useState<'trade' | 'portfolio' | 'performance' | 'positions' | 'baskets' | 'market'>('trade')
-
+  const [selectedTab, setSelectedTab] = useState<'trade' | 'portfolio' | 'performance' | 'baskets' | 'market'>('trade')
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   // Fetch account information
@@ -60,13 +58,12 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
     { id: 'trade', label: 'Trade', icon: DollarSignIcon },
     { id: 'portfolio', label: 'Portfolio', icon: PieChartIcon },
     { id: 'performance', label: 'Performance', icon: LineChartIcon },
-    { id: 'positions', label: 'Positions', icon: BarChart3Icon },
     { id: 'baskets', label: 'Baskets', icon: CreditCardIcon },
     { id: 'market', label: 'Market', icon: ActivityIcon },
   ] as const
 
   return (
-    <div className="flex h-screen bg-white relative">
+    <div className="flex h-screen bg-gray-50/30 relative overflow-hidden">
       {/* Mobile Menu Overlay */}
       {isMobileMenuOpen && (
         <div 
@@ -79,162 +76,168 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
       <div className={`
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
         lg:translate-x-0 fixed lg:static inset-y-0 left-0 z-50
-        w-72 sm:w-80 lg:w-72 xl:w-80 2xl:w-96
-        bg-white border-r border-gray-100 flex flex-col relative overflow-hidden
+        w-[85vw] sm:w-80 lg:w-64 xl:w-72 2xl:w-80
+        bg-white border-r border-gray-100 flex flex-col
         transition-transform duration-300 ease-in-out
       `}>
         {/* Subtle grid pattern background */}
         <div className="absolute inset-0 grid-pattern opacity-[0.02]" />
         
         {/* Header with glassmorphism effect */}
-        <div className="relative p-4 sm:p-6 lg:p-8 border-b border-gray-100 bg-gradient-to-b from-white to-gray-50/50">
+        <div className="relative p-4 sm:p-5 lg:p-6 bg-gradient-to-b from-white to-gray-50/30 backdrop-blur-sm border-b border-gray-100">
           <div className="flex items-center justify-between mb-1">
-            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 tracking-tight">
+            <h1 className="text-lg sm:text-xl lg:text-2xl font-semibold text-gray-900 tracking-tight">
               Terminal
             </h1>
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-1 sm:space-x-2">
               {/* Mobile Close Button */}
               <button 
-                className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200 group"
+                className="lg:hidden p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200 group"
                 onClick={() => setIsMobileMenuOpen(false)}
               >
                 <XIcon className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
               </button>
-              <button className="hidden sm:block p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200 group">
-                <BellIcon className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
+              <button className="hidden sm:block p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200 group">
+                <BellIcon className="w-3.5 sm:w-4 h-3.5 sm:h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
               </button>
-              <button className="hidden sm:block p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200 group">
-                <SettingsIcon className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
+              <button className="hidden sm:block p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200 group">
+                <SettingsIcon className="w-3.5 sm:w-4 h-3.5 sm:h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
               </button>
             </div>
           </div>
-          <p className="text-sm text-gray-500 font-medium">AI-Powered Trading</p>
+          <p className="text-xs sm:text-sm text-gray-500 font-medium">AI-Powered Trading</p>
         </div>
 
         {/* Search Bar */}
-        <div className="px-4 sm:px-6 py-3 sm:py-4">
+        <div className="px-3 sm:px-4 lg:px-5 py-2 sm:py-3">
           <div className="relative">
-            <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <SearchIcon className="absolute left-2.5 sm:left-3 top-1/2 transform -translate-y-1/2 w-3.5 sm:w-4 h-3.5 sm:h-4 text-gray-400" />
             <input 
               type="text"
               placeholder="Search symbols..."
-              className="w-full pl-10 pr-4 py-2 sm:py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:bg-white focus:border-gray-300 focus:outline-none transition-all duration-200"
+              className="w-full pl-8 sm:pl-10 pr-3 sm:pr-4 py-1.5 sm:py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs sm:text-sm focus:bg-white focus:border-gray-300 focus:outline-none transition-all duration-200"
             />
           </div>
         </div>
 
         {/* Navigation with modern styling */}
-        <nav className="flex-1 px-3 sm:px-4 py-2 overflow-y-auto custom-scrollbar">
-          <div className="space-y-1">
-            {navigationItems.map((item, index) => {
-              const Icon = item.icon
-              const isSelected = selectedTab === item.id
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setSelectedTab(item.id)}
-                  className={`nav-item w-full ${isSelected ? 'active' : ''} group`}
-                  style={{ animationDelay: `${index * 50}ms` }}
-                >
-                  <Icon className={`w-5 h-5 flex-shrink-0 transition-transform duration-300 group-hover:scale-110 ${
-                    isSelected ? 'text-white' : 'text-gray-400 group-hover:text-gray-600'
-                  }`} />
-                  <span className="font-medium">{item.label}</span>
-                  {isSelected && (
-                    <div className="ml-auto w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
-                  )}
-                </button>
-              )
-            })}
-          </div>
+        <nav className="flex-1 px-2 sm:px-3 py-2 sm:py-4 space-y-0.5 sm:space-y-1 overflow-y-auto">
+          {navigationItems.map((item) => {
+            const Icon = item.icon
+            const isActive = selectedTab === item.id
+            
+            return (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setSelectedTab(item.id)
+                  setIsMobileMenuOpen(false)
+                }}
+                className={`nav-item w-full text-xs sm:text-sm ${
+                  isActive ? 'active' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Icon className="w-4 sm:w-5 h-4 sm:h-5 flex-shrink-0" />
+                <span className="font-medium">{item.label}</span>
+              </button>
+            )
+          })}
         </nav>
 
-        {/* Modern Status Section */}
-        <div className="p-4 sm:p-6 border-t border-gray-100 space-y-3 sm:space-y-4 bg-gradient-to-t from-gray-50/50 to-white">
-          {/* Connection Status with animation */}
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Status</span>
-            <div className={`flex items-center space-x-2 text-xs font-medium ${wsConnected ? 'text-green-600' : 'text-red-600'}`}>
-              <div className={`w-2 h-2 rounded-full transition-all duration-300 ${wsConnected ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-gray-400'}`} />
-              <span className="transition-all duration-300">{wsConnected ? 'Live' : 'Offline'}</span>
+        {/* Bottom Section with Account Status */}
+        <div className="relative p-3 sm:p-4 lg:p-5 border-t border-gray-100 bg-gradient-to-t from-gray-50 to-white">
+          <div className="space-y-3 sm:space-y-4">
+            {/* Connection Status */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs sm:text-sm text-gray-600">Status</span>
+              <div className="flex items-center space-x-1.5 sm:space-x-2">
+                <div className={`status-dot ${wsConnected ? 'status-connected' : 'status-disconnected'}`} />
+                <span className="text-xs sm:text-sm font-medium text-gray-900">
+                  {wsConnected ? 'Connected' : 'Disconnected'}
+                </span>
+              </div>
             </div>
+
+            {/* Account Info Summary */}
+            {accountInfo && (
+              <div className="pt-2 sm:pt-3 border-t border-gray-100 space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-xs text-gray-500">Portfolio</span>
+                  <span className="text-xs sm:text-sm font-semibold text-gray-900">
+                    {formatCurrency(accountInfo.portfolioValue)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-xs text-gray-500">Buying Power</span>
+                  <span className="text-xs sm:text-sm font-semibold text-gray-900">
+                    {formatCurrency(accountInfo.buyingPower)}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Market Status Badge */}
+            {marketStatus && (
+              <div className={`flex items-center justify-center py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs font-medium ${
+                marketStatus.isOpen 
+                  ? 'bg-green-50 text-green-700 border border-green-200' 
+                  : 'bg-gray-50 text-gray-600 border border-gray-200'
+              }`}>
+                <ActivityIcon className="w-3 sm:w-3.5 h-3 sm:h-3.5 mr-1 sm:mr-1.5" />
+                Market {marketStatus.isOpen ? 'Open' : 'Closed'}
+              </div>
+            )}
           </div>
-          
-          {/* Market Status with modern indicator */}
-          {marketStatus && (
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Market</span>
-              <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full transition-all duration-300 ${
-                  marketStatus.isOpen ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-gray-400'
-                }`} />
-                <span className={`text-xs font-medium ${
-                  marketStatus.isOpen ? 'text-green-600' : 'text-gray-500'
-                }`}>
-                  {marketStatus.isOpen ? 'Open' : 'Closed'}
-                </span>
-              </div>
-            </div>
-          )}
-          
-          {/* Trading Mode with consistent indicator styling */}
-          {healthStatus && (
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Mode</span>
-              <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full transition-all duration-300 ${
-                  healthStatus.mode === 'paper' ? 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.5)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'
-                }`} />
-                <span className={`text-xs font-medium ${
-                  healthStatus.mode === 'paper' ? 'text-yellow-600' : 'text-red-600'
-                }`}>
-                  {healthStatus.mode === 'paper' ? 'Paper' : 'Live'}
-                </span>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-gray-50/30 lg:ml-0">
+      <div className="flex-1 flex flex-col min-w-0 bg-gray-50/30">
         {/* Modern Top Header */}
-        <header className="bg-white border-b border-gray-100 px-4 sm:px-6 lg:px-8 py-4 sm:py-6 relative overflow-hidden">
+        <header className="bg-white border-b border-gray-100 px-3 sm:px-4 lg:px-6 xl:px-8 py-3 sm:py-4 lg:py-5 relative">
           {/* Subtle gradient overlay */}
           <div className="absolute inset-0 bg-gradient-to-r from-gray-50/0 via-gray-50/50 to-gray-50/0 opacity-50" />
           
           <div className="relative flex items-center justify-between">
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-3 sm:space-x-4">
               {/* Mobile Hamburger Menu */}
               <button 
-                className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200"
+                className="lg:hidden p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200"
                 onClick={() => setIsMobileMenuOpen(true)}
               >
-                <MenuIcon className="w-5 h-5 text-gray-600" />
+                <MenuIcon className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600" />
               </button>
               <div className="slide-in-right">
-                <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 capitalize tracking-tight">
+                <h2 className="text-lg sm:text-xl lg:text-2xl xl:text-3xl font-semibold text-gray-900 capitalize tracking-tight">
                   {selectedTab}
                 </h2>
-                <p className="text-sm text-gray-500 mt-1 font-medium">
+                <p className="hidden sm:block text-xs sm:text-sm text-gray-500 mt-0.5 sm:mt-1 font-medium">
                   {selectedTab === 'trade' && 'Execute trades using natural language'}
                   {selectedTab === 'portfolio' && 'Monitor your investment performance'}
                   {selectedTab === 'performance' && 'Analyze returns and benchmarks'}
-                  {selectedTab === 'positions' && 'Manage your current holdings'}
                   {selectedTab === 'baskets' && 'Explore institutional portfolios'}
                   {selectedTab === 'market' && 'Real-time market intelligence'}
                 </p>
               </div>
             </div>
 
+            {/* Desktop Health Status */}
+            <div className="hidden lg:flex items-center space-x-3 xl:space-x-4">
+              {healthStatus && (
+                <div className="text-right">
+                  <p className="text-xs text-gray-500">Mode</p>
+                  <p className="text-sm font-semibold text-gray-900 capitalize">
+                    {healthStatus.mode}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
         {/* Content Area with modern styling */}
-        <main className="flex-1 overflow-y-auto custom-scrollbar bg-gradient-to-b from-gray-50/30 to-white">
-          <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
-
-
+        <main className="flex-1 overflow-y-auto custom-scrollbar">
+          <div className="w-full max-w-[1920px] mx-auto p-3 sm:p-4 lg:p-6 xl:p-8">
             {/* Main Content with tab animation */}
             <div key={selectedTab} className="tab-content-enter">
               {selectedTab === 'trade' && (
@@ -250,24 +253,19 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
               {selectedTab === 'performance' && (
                 <div className="slide-in-bottom">
                   <Suspense fallback={
-                    <div className="glass-card p-12 text-center">
-                      <div className="w-20 h-20 mx-auto mb-6 bg-gray-100 rounded-2xl flex items-center justify-center">
-                        <LineChartIcon className="w-10 h-10 text-gray-400 animate-pulse" />
+                    <div className="glass-card p-8 sm:p-12 text-center">
+                      <div className="w-16 sm:w-20 h-16 sm:h-20 mx-auto mb-4 sm:mb-6 bg-gray-100 rounded-2xl flex items-center justify-center">
+                        <LineChartIcon className="w-8 sm:w-10 h-8 sm:h-10 text-gray-400 animate-pulse" />
                       </div>
-                      <h3 className="text-xl font-semibold text-gray-900 mb-2">Loading Performance Analytics</h3>
-                      <p className="text-gray-500">Preparing your portfolio insights...</p>
-                      <div className="mt-8 flex justify-center">
+                      <h3 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2">Loading Performance Analytics</h3>
+                      <p className="text-sm sm:text-base text-gray-500">Preparing your portfolio insights...</p>
+                      <div className="mt-6 sm:mt-8 flex justify-center">
                         <div className="spinner" />
                       </div>
                     </div>
                   }>
                     <PortfolioPerformance accountInfo={accountInfo} />
                   </Suspense>
-                </div>
-              )}
-              {selectedTab === 'positions' && (
-                <div className="slide-in-bottom">
-                  <PositionsList positions={accountInfo?.positions || []} />
                 </div>
               )}
               {selectedTab === 'baskets' && (
@@ -286,15 +284,15 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
 
         {/* Modern Error Toast */}
         {accountError && (
-          <div className="fixed bottom-8 right-8 max-w-md z-50 slide-in-bottom">
-            <div className="glass-card p-6 border-red-200 bg-red-50/90">
+          <div className="fixed bottom-4 sm:bottom-6 lg:bottom-8 right-4 sm:right-6 lg:right-8 max-w-[90vw] sm:max-w-md z-50 slide-in-bottom">
+            <div className="glass-card p-4 sm:p-6 border-red-200 bg-red-50/90">
               <div className="flex items-start space-x-3">
-                <div className="p-2 bg-red-100 rounded-lg">
-                  <XCircleIcon className="w-5 h-5 text-red-600" />
+                <div className="p-1.5 sm:p-2 bg-red-100 rounded-lg flex-shrink-0">
+                  <XCircleIcon className="w-4 sm:w-5 h-4 sm:h-5 text-red-600" />
                 </div>
-                <div className="flex-1">
-                  <h4 className="font-semibold text-gray-900 mb-1">Connection Error</h4>
-                  <p className="text-sm text-gray-600">
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-semibold text-gray-900 mb-0.5 sm:mb-1 text-sm sm:text-base">Connection Error</h4>
+                  <p className="text-xs sm:text-sm text-gray-600 break-words">
                     {accountError.message}
                   </p>
                 </div>

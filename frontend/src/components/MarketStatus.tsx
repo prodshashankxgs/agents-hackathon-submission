@@ -118,127 +118,127 @@ export function MarketStatus() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Modern Market Status Header */}
-      <div className="brokerage-card p-8 relative overflow-hidden">
+      <div className="brokerage-card p-4 sm:p-6 lg:p-8 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-gray-50/50 to-white opacity-50" />
         
         <div className="relative">
-          <div className="flex items-start justify-between mb-8">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between mb-4 sm:mb-6 lg:mb-8 space-y-4 sm:space-y-0">
             <div>
-              <h2 className="text-3xl font-semibold text-gray-900 tracking-tight flex items-center">
-                <div className="p-3 bg-gray-900 rounded-xl mr-4">
-                  <ClockIcon className="w-6 h-6 text-white" />
+              <h2 className="text-xl sm:text-2xl lg:text-3xl font-semibold text-gray-900 tracking-tight flex items-center">
+                <div className="p-2 sm:p-2.5 lg:p-3 bg-gray-900 rounded-lg sm:rounded-xl mr-2 sm:mr-3 lg:mr-4">
+                  <ClockIcon className="w-4 sm:w-5 lg:w-6 h-4 sm:h-5 lg:h-6 text-white" />
                 </div>
                 Market Status
               </h2>
-              <p className="text-gray-500 mt-2 text-lg">
+              <p className="text-gray-500 mt-1 sm:mt-2 text-sm sm:text-base lg:text-lg">
                 Real-time trading session information
               </p>
             </div>
             
-            <div className="flex items-center space-x-4">
-              <div className={`flex items-center space-x-2 px-6 py-3 rounded-full text-sm font-semibold transition-all duration-300 ${
+            <div className="flex items-center space-x-2 sm:space-x-3 lg:space-x-4">
+              <div className={`flex items-center space-x-1.5 sm:space-x-2 px-3 sm:px-4 lg:px-6 py-1.5 sm:py-2 lg:py-3 rounded-full text-xs sm:text-sm font-semibold transition-all duration-300 ${
                 marketStatus?.isOpen 
                   ? 'bg-green-100 text-green-700 shadow-[0_0_20px_rgba(34,197,94,0.2)]' 
                   : 'bg-gray-100 text-gray-700'
               }`}>
-                <div className={`w-3 h-3 rounded-full ${
+                <div className={`w-2 sm:w-2.5 lg:w-3 h-2 sm:h-2.5 lg:h-3 rounded-full ${
                   marketStatus?.isOpen ? 'bg-green-500' : 'bg-gray-400'
                 } ${marketStatus?.isOpen ? 'animate-pulse' : ''}`} />
                 <span>{isLoading ? 'Checking...' : marketStatus?.isOpen ? 'MARKET OPEN' : 'MARKET CLOSED'}</span>
               </div>
               
-              <button className="p-3 hover:bg-gray-100 rounded-lg transition-colors group">
-                <BellIcon className="w-5 h-5 text-gray-400 group-hover:text-gray-600" />
+              <button className="hidden sm:block p-2 sm:p-2.5 lg:p-3 hover:bg-gray-100 rounded-lg transition-colors group">
+                <BellIcon className="w-4 sm:w-4 lg:w-5 h-4 sm:h-4 lg:h-5 text-gray-400 group-hover:text-gray-600" />
               </button>
             </div>
           </div>
 
           {/* Live Clock and Countdown */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div className="metric-card">
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Current Time</p>
-              <p className="text-3xl font-bold text-gray-900 font-mono number-counter">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-6 mb-4 sm:mb-6 lg:mb-8">
+            <div className="metric-card p-3 sm:p-4">
+              <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider mb-1 sm:mb-2">Current Time</p>
+              <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 font-mono number-counter">
                 {currentTime.toLocaleTimeString('en-US', { hour12: false })}
               </p>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-xs sm:text-sm text-gray-500 mt-0.5 sm:mt-1">
                 {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
               </p>
             </div>
             
             {timeUntilOpen && (
-              <div className="metric-card">
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Opens In</p>
-                <p className="text-3xl font-bold text-gray-900 font-mono">
+              <div className="metric-card p-3 sm:p-4">
+                <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider mb-1 sm:mb-2">Opens In</p>
+                <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 font-mono">
                   {timeUntilOpen}
                 </p>
-                <p className="text-sm text-gray-500 mt-1">Next trading session</p>
+                <p className="text-xs sm:text-sm text-gray-500 mt-0.5 sm:mt-1">Next trading session</p>
               </div>
             )}
             
             {timeUntilClose && (
-              <div className="metric-card">
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Closes In</p>
-                <p className="text-3xl font-bold text-red-600 font-mono">
+              <div className="metric-card p-3 sm:p-4">
+                <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider mb-1 sm:mb-2">Closes In</p>
+                <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-red-600 font-mono">
                   {timeUntilClose}
                 </p>
-                <p className="text-sm text-gray-500 mt-1">Current session ends</p>
+                <p className="text-xs sm:text-sm text-gray-500 mt-0.5 sm:mt-1">Current session ends</p>
               </div>
             )}
             
             {!timeUntilOpen && !timeUntilClose && (
-              <div className="metric-card">
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Session Status</p>
-                <p className="text-2xl font-bold text-gray-900">
+              <div className="metric-card p-3 sm:p-4">
+                <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider mb-1 sm:mb-2">Session Status</p>
+                <p className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900">
                   {isWeekend ? 'Weekend' : 'After Hours'}
                 </p>
-                <p className="text-sm text-gray-500 mt-1">Markets closed</p>
+                <p className="text-xs sm:text-sm text-gray-500 mt-0.5 sm:mt-1">Markets closed</p>
               </div>
             )}
           </div>
 
           {/* Trading Sessions Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             {sessions.map((session, index) => {
               const Icon = session.icon
               return (
                 <div 
                   key={session.name}
-                  className={`brokerage-card p-6 transition-all duration-300 ${
+                  className={`brokerage-card p-4 sm:p-5 lg:p-6 transition-all duration-300 ${
                     session.active ? 'ring-2 ring-gray-900 shadow-lg' : ''
                   }`}
                   style={{ animationDelay: `${index * 100}ms` }}
                 >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className={`p-3 rounded-xl ${
+                  <div className="flex items-start justify-between mb-3 sm:mb-4">
+                    <div className={`p-2 sm:p-2.5 lg:p-3 rounded-lg sm:rounded-xl ${
                       session.active 
                         ? session.color === 'green' ? 'bg-green-600' : 
                           session.color === 'amber' ? 'bg-amber-600' : 
                           'bg-indigo-600'
                         : 'bg-gray-100'
                     }`}>
-                      <Icon className={`w-5 h-5 ${
+                      <Icon className={`w-4 sm:w-4 lg:w-5 h-4 sm:h-4 lg:h-5 ${
                         session.active ? 'text-white' : 'text-gray-400'
                       }`} />
                     </div>
                     {session.active && (
-                      <div className="badge bg-gray-900 text-white px-3 py-1">
-                        <ZapIcon className="w-3 h-3 mr-1" />
+                      <div className="badge bg-gray-900 text-white px-2 sm:px-3 py-0.5 sm:py-1 text-xs sm:text-sm">
+                        <ZapIcon className="w-2.5 sm:w-3 h-2.5 sm:h-3 mr-0.5 sm:mr-1" />
                         Active
                       </div>
                     )}
                   </div>
                   
-                  <h3 className="text-lg font-semibold text-gray-900 mb-1">{session.name}</h3>
-                  <p className="text-sm text-gray-500 mb-4">Trading session</p>
+                  <h3 className="text-base sm:text-base lg:text-lg font-semibold text-gray-900 mb-0.5 sm:mb-1">{session.name}</h3>
+                  <p className="text-xs sm:text-sm text-gray-500 mb-3 sm:mb-4">Trading session</p>
                   
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
+                  <div className="space-y-1.5 sm:space-y-2">
+                    <div className="flex justify-between text-xs sm:text-sm">
                       <span className="text-gray-500">Start:</span>
                       <span className="font-medium text-gray-900">{session.start} EST</span>
                     </div>
-                    <div className="flex justify-between text-sm">
+                    <div className="flex justify-between text-xs sm:text-sm">
                       <span className="text-gray-500">End:</span>
                       <span className="font-medium text-gray-900">{session.end} EST</span>
                     </div>

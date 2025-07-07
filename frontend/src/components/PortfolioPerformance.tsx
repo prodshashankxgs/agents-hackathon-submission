@@ -551,84 +551,87 @@ export function PortfolioPerformance({ accountInfo }: PortfolioPerformanceProps)
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Performance Summary - Compact */}
-      <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm mb-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+      <div className="brokerage-card p-4 sm:p-6 lg:p-8 relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-gray-50/50 to-white opacity-50" />
+        <div className="relative grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
           <div className="text-center">
-            <div className="flex items-center justify-center mb-1">
+            <div className="flex items-center justify-center mb-0.5 sm:mb-1">
               {metrics.totalReturn >= 0 ? 
-                <TrendingUpIcon className="w-3 h-3 text-green-500 mr-1" /> : 
-                <TrendingDownIcon className="w-3 h-3 text-red-500 mr-1" />
+                <TrendingUpIcon className="w-2.5 sm:w-3 h-2.5 sm:h-3 text-green-500 mr-0.5 sm:mr-1" /> : 
+                <TrendingDownIcon className="w-2.5 sm:w-3 h-2.5 sm:h-3 text-red-500 mr-0.5 sm:mr-1" />
               }
-              <span className="text-xs text-gray-500 uppercase tracking-wide">Total Return</span>
+              <span className="text-[10px] sm:text-xs text-gray-500 uppercase tracking-wide">Total Return</span>
             </div>
-            <p className={`text-xl font-bold ${metrics.totalReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            <p className={`text-base sm:text-lg lg:text-xl font-bold ${metrics.totalReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {formatCurrency(metrics.totalReturn)}
             </p>
-            <p className={`text-xs ${metrics.totalReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            <p className={`text-[10px] sm:text-xs ${metrics.totalReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {metrics.totalReturn >= 0 ? '+' : ''}{formatPercentage(metrics.totalReturnPercent)}
             </p>
           </div>
 
           <div className="text-center">
-            <div className="flex items-center justify-center mb-1">
-              <PercentIcon className="w-3 h-3 text-gray-400 mr-1" />
-              <span className="text-xs text-gray-500 uppercase tracking-wide">vs S&P 500</span>
+            <div className="flex items-center justify-center mb-0.5 sm:mb-1">
+              <PercentIcon className="w-2.5 sm:w-3 h-2.5 sm:h-3 text-gray-400 mr-0.5 sm:mr-1" />
+              <span className="text-[10px] sm:text-xs text-gray-500 uppercase tracking-wide">vs S&P 500</span>
             </div>
-            <p className={`text-xl font-bold ${metrics.alpha >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            <p className={`text-base sm:text-lg lg:text-xl font-bold ${metrics.alpha >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {metrics.alpha >= 0 ? '+' : ''}{metrics.alpha.toFixed(2)}%
             </p>
-            <p className="text-xs text-gray-500">Alpha</p>
+            <p className="text-[10px] sm:text-xs text-gray-500">Alpha</p>
           </div>
 
           <div className="text-center">
-            <div className="flex items-center justify-center mb-1">
-              <CalendarIcon className="w-3 h-3 text-gray-400 mr-1" />
-              <span className="text-xs text-gray-500 uppercase tracking-wide">Volatility</span>
+            <div className="flex items-center justify-center mb-0.5 sm:mb-1">
+              <CalendarIcon className="w-2.5 sm:w-3 h-2.5 sm:h-3 text-gray-400 mr-0.5 sm:mr-1" />
+              <span className="text-[10px] sm:text-xs text-gray-500 uppercase tracking-wide">Volatility</span>
             </div>
-            <p className="text-xl font-bold text-gray-900">{metrics.volatility.toFixed(1)}%</p>
-            <p className="text-xs text-gray-500">Annualized</p>
+            <p className="text-base sm:text-lg lg:text-xl font-bold text-gray-900">{metrics.volatility.toFixed(1)}%</p>
+            <p className="text-[10px] sm:text-xs text-gray-500">Annualized</p>
           </div>
 
           <div className="text-center">
-            <div className="flex items-center justify-center mb-1">
-              <TrendingDownIcon className="w-3 h-3 text-red-400 mr-1" />
-              <span className="text-xs text-gray-500 uppercase tracking-wide">Max Drawdown</span>
+            <div className="flex items-center justify-center mb-0.5 sm:mb-1">
+              <TrendingDownIcon className="w-2.5 sm:w-3 h-2.5 sm:h-3 text-red-400 mr-0.5 sm:mr-1" />
+              <span className="text-[10px] sm:text-xs text-gray-500 uppercase tracking-wide">Max Drawdown</span>
             </div>
-            <p className="text-xl font-bold text-red-600">-{metrics.maxDrawdown.toFixed(1)}%</p>
-            <p className="text-xs text-gray-500">From Peak</p>
+            <p className="text-base sm:text-lg lg:text-xl font-bold text-red-600">-{metrics.maxDrawdown.toFixed(1)}%</p>
+            <p className="text-[10px] sm:text-xs text-gray-500">From Peak</p>
           </div>
         </div>
       </div>
 
       {/* Chart Controls */}
-      <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 space-y-4 sm:space-y-0">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">Portfolio Performance</h3>
-            <div className="flex flex-col space-y-1">
-              <p className="text-sm text-gray-600">Track your portfolio value over time</p>
-              {dataMessage && (
-                <p className={`text-xs px-2 py-1 rounded ${
-                  dataMessage.type === 'success' 
-                    ? 'text-green-600 bg-green-50' 
-                    : 'text-blue-600 bg-blue-50'
-                }`}>
-                  {dataMessage.text}
-                </p>
-              )}
+      <div className="brokerage-card p-4 sm:p-6">
+        <div className="flex flex-col space-y-3 sm:space-y-4">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start space-y-3 sm:space-y-0">
+            <div>
+              <h3 className="text-base sm:text-lg font-semibold text-gray-900">Portfolio Performance</h3>
+              <div className="flex flex-col space-y-1">
+                <p className="text-xs sm:text-sm text-gray-600">Track your portfolio value over time</p>
+                {dataMessage && (
+                  <p className={`text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 rounded ${
+                    dataMessage.type === 'success' 
+                      ? 'text-green-600 bg-green-50' 
+                      : 'text-blue-600 bg-blue-50'
+                  }`}>
+                    {dataMessage.text}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
           
-          <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4">
+          <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3 lg:space-x-4">
             {/* Time Range Selector */}
-            <div className="flex space-x-1 bg-gray-100 rounded-lg p-1">
+            <div className="flex space-x-0.5 sm:space-x-1 bg-gray-100 rounded-lg p-0.5 sm:p-1">
               {(['1W', '1M', '3M', '6M', '1Y', 'ALL'] as const).map((range) => (
                 <button
                   key={range}
                   onClick={() => setTimeRange(range)}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  className={`px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors ${
                     timeRange === range
                       ? 'bg-white text-gray-900 shadow-sm'
                       : 'text-gray-600 hover:text-gray-900'
@@ -640,10 +643,10 @@ export function PortfolioPerformance({ accountInfo }: PortfolioPerformanceProps)
             </div>
 
             {/* Chart Type Selector */}
-            <div className="flex space-x-1 bg-gray-100 rounded-lg p-1">
+            <div className="flex space-x-0.5 sm:space-x-1 bg-gray-100 rounded-lg p-0.5 sm:p-1">
               <button
                 onClick={() => setChartType('value')}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                className={`px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors ${
                   chartType === 'value'
                     ? 'bg-white text-gray-900 shadow-sm'
                     : 'text-gray-600 hover:text-gray-900'
@@ -653,7 +656,7 @@ export function PortfolioPerformance({ accountInfo }: PortfolioPerformanceProps)
               </button>
               <button
                 onClick={() => setChartType('return')}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                className={`px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors ${
                   chartType === 'return'
                     ? 'bg-white text-gray-900 shadow-sm'
                     : 'text-gray-600 hover:text-gray-900'
@@ -663,7 +666,7 @@ export function PortfolioPerformance({ accountInfo }: PortfolioPerformanceProps)
               </button>
               <button
                 onClick={() => setChartType('comparison')}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                className={`px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors ${
                   chartType === 'comparison'
                     ? 'bg-white text-gray-900 shadow-sm'
                     : 'text-gray-600 hover:text-gray-900'
@@ -676,15 +679,23 @@ export function PortfolioPerformance({ accountInfo }: PortfolioPerformanceProps)
         </div>
 
         {/* Chart */}
-        <div className="h-96">
+        <div className="h-48 sm:h-56 lg:h-64 -mx-1 sm:-mx-2 mt-4 sm:mt-6">
           <ResponsiveContainer width="100%" height="100%">
             {chartType === 'value' ? (
               <LineChart data={historicalData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <defs>
+                  <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#000000" stopOpacity={0.1}/>
+                    <stop offset="95%" stopColor="#000000" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
                 <XAxis 
                   dataKey="date" 
                   tickFormatter={(date) => format(parseISO(date), 'MMM dd')}
                   stroke="#9ca3af"
+                  fontSize={12}
+                  tickLine={false}
                 />
                 <YAxis 
                   domain={portfolioValueDomain}
@@ -698,13 +709,23 @@ export function PortfolioPerformance({ accountInfo }: PortfolioPerformanceProps)
                     }
                   }}
                   stroke="#9ca3af"
+                  fontSize={12}
+                  tickLine={false}
                 />
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: 'white',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                  }}
+                  content={<CustomTooltip />} 
+                />
                 <Legend />
                 <Line 
                   type="monotone" 
                   dataKey="portfolioValue" 
-                  stroke="#3b82f6" 
+                  stroke="#000000" 
                   strokeWidth={2}
                   name="Portfolio"
                   dot={false}
@@ -712,25 +733,43 @@ export function PortfolioPerformance({ accountInfo }: PortfolioPerformanceProps)
               </LineChart>
             ) : chartType === 'return' ? (
               <ComposedChart data={historicalData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <defs>
+                  <linearGradient id="colorReturn" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#000000" stopOpacity={0.1}/>
+                    <stop offset="95%" stopColor="#000000" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
                 <XAxis 
                   dataKey="date" 
                   tickFormatter={(date) => format(parseISO(date), 'MMM dd')}
                   stroke="#9ca3af"
+                  fontSize={12}
+                  tickLine={false}
                 />
                 <YAxis 
                   domain={returnsDomain}
                   tickFormatter={(value) => `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`}
                   stroke="#9ca3af"
+                  fontSize={12}
+                  tickLine={false}
                 />
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: 'white',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                  }}
+                  content={<CustomTooltip />} 
+                />
                 <Legend />
                 <Area
                   type="monotone"
                   dataKey="portfolioReturn"
-                  fill="#3b82f6"
-                  fillOpacity={0.1}
-                  stroke="#3b82f6"
+                  fill="url(#colorReturn)"
+                  fillOpacity={1}
+                  stroke="#000000"
                   strokeWidth={2}
                   name="Portfolio Return"
                 />
@@ -746,23 +785,35 @@ export function PortfolioPerformance({ accountInfo }: PortfolioPerformanceProps)
               </ComposedChart>
             ) : (
               <LineChart data={historicalData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
                 <XAxis 
                   dataKey="date" 
                   tickFormatter={(date) => format(parseISO(date), 'MMM dd')}
                   stroke="#9ca3af"
+                  fontSize={12}
+                  tickLine={false}
                 />
                 <YAxis 
                   domain={returnsDomain}
                   tickFormatter={(value) => `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`}
                   stroke="#9ca3af"
+                  fontSize={12}
+                  tickLine={false}
                 />
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: 'white',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                  }}
+                  content={<CustomTooltip />} 
+                />
                 <Legend />
                 <Line 
                   type="monotone" 
                   dataKey="portfolioReturn" 
-                  stroke="#3b82f6" 
+                  stroke="#000000" 
                   strokeWidth={2}
                   name="Portfolio"
                   dot={false}
@@ -782,31 +833,31 @@ export function PortfolioPerformance({ accountInfo }: PortfolioPerformanceProps)
       </div>
 
       {/* Performance Statistics - Compact */}
-      <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-gray-700 uppercase tracking-wide">Performance Statistics</h3>
-          <span className="text-xs text-gray-500">{timeRange} Period</span>
+      <div className="brokerage-card p-4 sm:p-6">
+        <div className="flex items-center justify-between mb-4 sm:mb-6">
+          <h3 className="text-base sm:text-lg lg:text-xl font-semibold text-gray-900">Performance Statistics</h3>
+          <span className="text-xs sm:text-sm text-gray-500">{timeRange} Period</span>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="text-center p-2 bg-gray-50 rounded-lg">
-            <p className="text-xs text-gray-500 mb-1">Sharpe Ratio</p>
-            <p className="text-lg font-bold text-gray-900">{metrics.sharpeRatio.toFixed(2)}</p>
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
+          <div className="metric-card p-3 sm:p-4 text-center">
+            <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider mb-1 sm:mb-2">Sharpe Ratio</p>
+            <p className="text-lg sm:text-xl lg:text-2xl font-semibold text-gray-900">{metrics.sharpeRatio.toFixed(2)}</p>
           </div>
-          <div className="text-center p-2 bg-gray-50 rounded-lg">
-            <p className="text-xs text-gray-500 mb-1">Portfolio</p>
-            <p className={`text-lg font-bold ${metrics.totalReturnPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+          <div className="metric-card p-3 sm:p-4 text-center">
+            <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider mb-1 sm:mb-2">Portfolio</p>
+            <p className={`text-lg sm:text-xl lg:text-2xl font-semibold ${metrics.totalReturnPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {metrics.totalReturnPercent >= 0 ? '+' : ''}{metrics.totalReturnPercent.toFixed(1)}%
             </p>
           </div>
-          <div className="text-center p-2 bg-gray-50 rounded-lg">
-            <p className="text-xs text-gray-500 mb-1">S&P 500</p>
-            <p className={`text-lg font-bold ${metrics.sp500ReturnPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+          <div className="metric-card p-3 sm:p-4 text-center">
+            <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider mb-1 sm:mb-2">S&P 500</p>
+            <p className={`text-lg sm:text-xl lg:text-2xl font-semibold ${metrics.sp500ReturnPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {metrics.sp500ReturnPercent >= 0 ? '+' : ''}{metrics.sp500ReturnPercent.toFixed(1)}%
             </p>
           </div>
-          <div className="text-center p-2 bg-gray-50 rounded-lg">
-            <p className="text-xs text-gray-500 mb-1">Alpha</p>
-            <p className={`text-lg font-bold ${metrics.alpha >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+          <div className="metric-card p-3 sm:p-4 text-center">
+            <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider mb-1 sm:mb-2">Alpha</p>
+            <p className={`text-lg sm:text-xl lg:text-2xl font-semibold ${metrics.alpha >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {metrics.alpha >= 0 ? '+' : ''}{metrics.alpha.toFixed(1)}%
             </p>
           </div>
