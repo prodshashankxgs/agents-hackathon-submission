@@ -16,15 +16,14 @@ import {
   BrainCircuitIcon,
   ShieldCheckIcon,
   RocketIcon,
-  UsersIcon,
   ZapIcon,
-  InfoIcon,
   ArrowUpIcon
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { apiService, type HedgeRecommendation, type MarketAnalysis, type ThirteenFPortfolio, type PortfolioBasket } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import { type ProcessingStep } from './ProcessingSteps'
+import { ResponsiveContainer, PieChart, Pie, Tooltip, Cell } from 'recharts'
 
 interface ParsedCommand {
   action: 'buy' | 'sell'
@@ -57,14 +56,7 @@ export function TradingInterface() {
     allocation: any[]
     tradeResults: any[]
   } | null>(null)
-  const [copyTradeData, setCopyTradeData] = useState<{
-    politician: string
-    trades: any[]
-    weightedSpread: any[]
-    totalTrades: number
-    lastUpdated: string
-  } | null>(null)
-  const [copyTradeInvestment, setCopyTradeInvestment] = useState<any>(null)
+
   const [showInvestmentInput, setShowInvestmentInput] = useState(false)
   const [investmentAmount, setInvestmentAmount] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -202,8 +194,6 @@ export function TradingInterface() {
     setTradeRecommendations(null)
     setThirteenFPortfolio(null)
     setThirteenFInvestment(null)
-    setCopyTradeData(null)
-    setCopyTradeInvestment(null)
     setShowInvestmentInput(false)
     setInvestmentAmount('')
     setShowConfirmation(false)
@@ -308,19 +298,6 @@ export function TradingInterface() {
         await advanceToStep(3) // Preparing options
         setThirteenFPortfolio(portfolio)
         updateStepStatus(3, 'complete', '13F portfolio ready')
-        setShowInvestmentInput(true)
-      } else if (type === 'copytrade') {
-        await advanceToStep(0) // Analyzing request
-        
-        await advanceToStep(1) // Fetching politician trades
-        const copyTradeResult = await apiService.queryCopyTrade(intent as any)
-        
-        await advanceToStep(2) // Calculating allocation
-        await new Promise(resolve => setTimeout(resolve, 500))
-        
-        await advanceToStep(3) // Preparing options
-        setCopyTradeData(copyTradeResult)
-        updateStepStatus(3, 'complete', 'Copytrade portfolio ready')
         setShowInvestmentInput(true)
       }
       
@@ -472,7 +449,7 @@ export function TradingInterface() {
   }
 
   const handleInvestmentSubmit = async () => {
-    if ((!thirteenFPortfolio && !copyTradeData) || !investmentAmount) return
+    if (!thirteenFPortfolio || !investmentAmount) return
     
     const amount = parseFloat(investmentAmount)
     if (isNaN(amount) || amount <= 0) {
@@ -483,27 +460,15 @@ export function TradingInterface() {
     setIsLoading(true)
     
     try {
-      if (thirteenFPortfolio) {
-        setLoadingMessage('Executing portfolio spread investment...')
-        const intent = {
-          type: '13f',
-          institution: thirteenFPortfolio.institution,
-          action: 'invest'
-        }
-        
-        const result = await apiService.invest13FPortfolio(intent, amount)
-        setThirteenFInvestment(result)
-      } else if (copyTradeData) {
-        setLoadingMessage('Executing copytrade investment...')
-        const intent = {
-          type: 'copytrade',
-          politician: copyTradeData.politician,
-          action: 'invest'
-        }
-        
-        const result = await apiService.investCopyTrade(intent, amount)
-        setCopyTradeInvestment(result)
+      setLoadingMessage('Executing portfolio spread investment...')
+      const intent = {
+        type: '13f',
+        institution: thirteenFPortfolio.institution,
+        action: 'invest'
       }
+      
+      const result = await apiService.invest13FPortfolio(intent, amount)
+      setThirteenFInvestment(result)
       
       setShowInvestmentInput(false)
       
@@ -936,55 +901,212 @@ export function TradingInterface() {
               </div>
             )}
 
-            {/* 13F Portfolio Display - Integrated */}
+            {/* Enhanced 13F Portfolio Display */}
             {thirteenFPortfolio && showProcessingContainer && (
-              <div className="glass-card p-6 border-indigo-200 bg-indigo-50/30 slide-in-bottom">
-                <div className="flex items-start space-x-4">
-                  <div className="p-3 bg-indigo-600 rounded-xl">
-                    <BarChart3Icon className="w-5 h-5 text-white" />
+              <div className="space-y-4 sm:space-y-6 slide-in-bottom">
+                {/* Main Portfolio Card */}
+                <div className="brokerage-card p-4 sm:p-6 lg:p-8 relative overflow-hidden">
+                  <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/50 to-purple-50/30 opacity-50" />
+                  
+                  <div className="relative">
+                    {/* Header Section */}
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between mb-4 sm:mb-6 space-y-3 sm:space-y-0">
+                      <div className="flex items-start space-x-3 sm:space-x-4">
+                        <div className="p-2 sm:p-3 bg-indigo-600 rounded-xl flex-shrink-0">
+                          <BarChart3Icon className="w-4 sm:w-5 h-4 sm:h-5 text-white" />
                   </div>
-                  <div className="flex-1 space-y-4">
-                    <div>
-                      <h3 className="font-medium text-indigo-900">{thirteenFPortfolio.institution} 13F Holdings</h3>
-                      <p className="text-sm text-indigo-800 mt-1">
-                        Filing Date: {new Date(thirteenFPortfolio.filingDate).toLocaleDateString()} | 
-                        Quarter End: {new Date(thirteenFPortfolio.quarterEndDate).toLocaleDateString()}
+                        <div className="min-w-0 flex-1">
+                          <h3 className="text-lg sm:text-xl lg:text-2xl font-semibold text-gray-900 mb-1 sm:mb-2">
+                            {thirteenFPortfolio.institution} 13F Holdings
+                          </h3>
+                          <div className="space-y-1 text-xs sm:text-sm text-gray-600">
+                            <p>
+                              <span className="font-medium">Filing Date:</span> {new Date(thirteenFPortfolio.filingDate).toLocaleDateString()} 
+                              {thirteenFPortfolio.formType && (
+                                <span className="ml-2 px-2 py-0.5 bg-gray-100 rounded text-xs font-medium">
+                                  {thirteenFPortfolio.formType}
+                                </span>
+                              )}
+                            </p>
+                            <p>
+                              <span className="font-medium">Quarter End:</span> {new Date(thirteenFPortfolio.quarterEndDate).toLocaleDateString()}
+                              {thirteenFPortfolio.amendmentFlag && (
+                                <span className="ml-2 px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-xs font-medium">
+                                  Amendment
+                                </span>
+                              )}
                       </p>
-                      <p className="text-sm text-indigo-800">
-                        Total Portfolio Value: {formatCurrency(thirteenFPortfolio.totalValue)}
-                      </p>
+                          </div>
+                        </div>
                     </div>
                     
-                    <div className="bg-white/60 p-4 rounded-lg">
-                      <h4 className="text-sm font-medium text-indigo-900 mb-3">Top Holdings (&gt;0.5%)</h4>
-                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                      <div className="text-right">
+                        <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">
+                          {formatCurrency(thirteenFPortfolio.totalValue)}
+                        </p>
+                        <p className="text-xs sm:text-sm text-gray-500 mt-1">
+                          Total Portfolio Value
+                        </p>
+                        {thirteenFPortfolio.documentCount && (
+                          <p className="text-xs text-gray-500">
+                            {thirteenFPortfolio.documentCount} holdings
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Analytics Overview */}
+                    {thirteenFPortfolio.analytics && (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
+                        <div className="bg-white/60 backdrop-blur-sm p-3 sm:p-4 rounded-lg border border-gray-100">
+                          <div className="text-lg sm:text-xl font-bold text-gray-900">
+                            {thirteenFPortfolio.analytics.diversificationScore}%
+                          </div>
+                          <div className="text-xs sm:text-sm text-gray-600">Diversification Score</div>
+                        </div>
+                        <div className="bg-white/60 backdrop-blur-sm p-3 sm:p-4 rounded-lg border border-gray-100">
+                          <div className="text-lg sm:text-xl font-bold text-gray-900">
+                            {thirteenFPortfolio.analytics.concentrationRisk}%
+                          </div>
+                          <div className="text-xs sm:text-sm text-gray-600">Top 10 Concentration</div>
+                        </div>
+                        <div className="bg-white/60 backdrop-blur-sm p-3 sm:p-4 rounded-lg border border-gray-100">
+                          <div className="text-lg sm:text-xl font-bold text-gray-900">
+                            {formatCurrency(thirteenFPortfolio.analytics.avgHoldingSize)}
+                          </div>
+                          <div className="text-xs sm:text-sm text-gray-600">Avg Holding Size</div>
+                        </div>
+                        <div className="bg-white/60 backdrop-blur-sm p-3 sm:p-4 rounded-lg border border-gray-100">
+                          <div className="text-lg sm:text-xl font-bold text-gray-900">
+                            {thirteenFPortfolio.analytics.quarterlyChange.newPositions}
+                          </div>
+                          <div className="text-xs sm:text-sm text-gray-600">New Positions</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Sector Allocation Chart */}
+                    {thirteenFPortfolio.analytics?.topSectors && thirteenFPortfolio.analytics.topSectors.length > 0 && (
+                      <div className="mb-4 sm:mb-6">
+                        <div className="bg-white/60 backdrop-blur-sm p-4 sm:p-6 rounded-lg border border-gray-100">
+                          <h4 className="text-sm sm:text-base font-semibold text-gray-900 mb-3 sm:mb-4">
+                            Sector Allocation
+                          </h4>
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+                            {/* Sector Chart */}
+                            <div className="h-48 sm:h-56 lg:h-64">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={thirteenFPortfolio.analytics.topSectors.slice(0, 8)}
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={window.innerWidth < 640 ? 30 : 40}
+                                    outerRadius={window.innerWidth < 640 ? 70 : 90}
+                                    paddingAngle={2}
+                                    dataKey="percentage"
+                                    label={({ sector, percentage }) => `${sector}: ${percentage.toFixed(1)}%`}
+                                    labelLine={false}
+                                    fontSize={window.innerWidth < 640 ? 10 : 12}
+                                  >
+                                                                         {thirteenFPortfolio.analytics.topSectors.slice(0, 8).map((_, index) => (
+                                       <Cell key={`cell-${index}`} fill={`hsl(${240 + index * 30}, 70%, ${60 + index * 5}%)`} />
+                                     ))}
+                                  </Pie>
+                                  <Tooltip 
+                                    formatter={(value: number) => [`${value.toFixed(1)}%`, 'Allocation']}
+                                    labelFormatter={(label) => `Sector: ${label}`}
+                                  />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            </div>
+                            
+                            {/* Sector Legend */}
+                            <div className="space-y-2">
+                              {thirteenFPortfolio.analytics.topSectors.slice(0, 8).map((sector, index) => (
+                                <div key={sector.sector} className="flex items-center justify-between text-sm">
+                                  <div className="flex items-center space-x-2">
+                                    <div 
+                                      className="w-3 h-3 rounded-full flex-shrink-0"
+                                      style={{ backgroundColor: `hsl(${240 + index * 30}, 70%, ${60 + index * 5}%)` }}
+                                    />
+                                    <span className="text-gray-700 truncate">{sector.sector}</span>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="font-semibold text-gray-900">{sector.percentage.toFixed(1)}%</div>
+                                    <div className="text-xs text-gray-500">{formatCurrency(sector.value)}</div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Holdings Table */}
+                    <div className="bg-white/60 backdrop-blur-sm p-4 sm:p-6 rounded-lg border border-gray-100">
+                      <div className="flex items-center justify-between mb-3 sm:mb-4">
+                        <h4 className="text-sm sm:text-base font-semibold text-gray-900">
+                          Top Holdings (&gt;0.5%)
+                        </h4>
+                        <div className="text-xs sm:text-sm text-gray-500">
+                          Showing {thirteenFPortfolio.holdings.filter(h => h.percentOfPortfolio >= 0.5).length} of {thirteenFPortfolio.holdings.length} holdings
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-1 sm:space-y-2 max-h-64 sm:max-h-80 overflow-y-auto custom-scrollbar">
                         {thirteenFPortfolio.holdings
                           .filter(h => h.percentOfPortfolio >= 0.5)
-                          .slice(0, 15)
+                          .slice(0, 20)
                           .map((holding, idx) => (
-                            <div key={holding.symbol} className="flex items-center justify-between p-2 bg-white/80 rounded text-sm">
-                              <div className="flex items-center space-x-3">
-                                <span className="w-6 text-xs text-gray-500">#{idx + 1}</span>
-                                <div>
-                                  <span className="font-medium text-indigo-900">{holding.symbol}</span>
-                                  <p className="text-xs text-indigo-700">{holding.companyName}</p>
+                            <div 
+                              key={holding.symbol} 
+                              className="flex items-center justify-between p-2 sm:p-3 bg-white/80 rounded-lg hover:bg-white/90 transition-colors duration-200 text-sm"
+                            >
+                              <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
+                                <span className="w-5 sm:w-6 text-xs text-gray-500 flex-shrink-0">#{idx + 1}</span>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center space-x-2">
+                                    <span className="font-semibold text-gray-900">{holding.symbol}</span>
+                                    {holding.changePercent !== undefined && (
+                                      <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                        holding.changePercent > 0 
+                                          ? 'bg-green-100 text-green-700' 
+                                          : holding.changePercent < 0 
+                                            ? 'bg-red-100 text-red-700'
+                                            : 'bg-gray-100 text-gray-600'
+                                      }`}>
+                                        {holding.changePercent > 0 ? '+' : ''}{holding.changePercent.toFixed(1)}%
+                                      </span>
+                                    )}
                                 </div>
+                                  <p className="text-xs text-gray-600 truncate">{holding.companyName}</p>
+                                  {holding.pricePerShare && (
+                                    <p className="text-xs text-gray-500">${holding.pricePerShare.toFixed(2)}/share</p>
+                                  )}
                               </div>
-                              <div className="text-right">
-                                <p className="font-medium text-indigo-900">{holding.percentOfPortfolio.toFixed(1)}%</p>
-                                <p className="text-xs text-indigo-700">{formatCurrency(holding.marketValue)}</p>
+                              </div>
+                              <div className="text-right flex-shrink-0">
+                                <div className="font-semibold text-gray-900">{holding.percentOfPortfolio.toFixed(1)}%</div>
+                                <div className="text-xs text-gray-600">{formatCurrency(holding.marketValue)}</div>
+                                <div className="text-xs text-gray-500">{holding.shares.toLocaleString()} shares</div>
                               </div>
                             </div>
                           ))}
                       </div>
                     </div>
                     
+                    {/* Investment Action */}
                     {showInvestmentInput && (
-                      <div className="bg-white/60 p-4 rounded-lg space-y-3">
-                        <h4 className="text-sm font-medium text-indigo-900">
-                          Would you like to invest in a weighted spread of this portfolio?
+                      <div className="mt-4 sm:mt-6 bg-white/60 backdrop-blur-sm p-4 sm:p-6 rounded-lg border border-gray-100">
+                        <h4 className="text-sm sm:text-base font-semibold text-gray-900 mb-3 sm:mb-4">
+                          Invest in Portfolio Spread
                         </h4>
-                        <div className="flex items-center space-x-3">
+                        <p className="text-xs sm:text-sm text-gray-600 mb-3 sm:mb-4">
+                          Create a weighted portfolio spread based on {thirteenFPortfolio.institution}'s institutional holdings.
+                        </p>
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-3 sm:space-y-0 sm:space-x-3">
                           <Input
                             type="number"
                             placeholder="Investment amount (e.g., 10000)"
@@ -996,14 +1118,11 @@ export function TradingInterface() {
                           <button
                             onClick={handleInvestmentSubmit}
                             disabled={isLoading || !investmentAmount}
-                            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                            className="px-4 sm:px-6 py-2 sm:py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium transition-colors duration-200 flex-shrink-0"
                           >
-                            {isLoading ? 'Investing...' : 'Invest'}
+                            {isLoading ? 'Creating Portfolio...' : 'Invest'}
                           </button>
                         </div>
-                        <p className="text-xs text-indigo-700">
-                          This will create a weighted portfolio spread based on the institutional holdings.
-                        </p>
                       </div>
                     )}
                   </div>
@@ -1061,118 +1180,7 @@ export function TradingInterface() {
               </div>
             )}
 
-            {/* CopyTrade Portfolio Display */}
-            {copyTradeData && showProcessingContainer && (
-              <div className="glass-card p-6 border-blue-200 bg-blue-50/30 slide-in-bottom">
-                <div className="flex items-start space-x-4">
-                  <div className="p-3 bg-blue-600 rounded-xl">
-                    <UsersIcon className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="flex-1 space-y-3">
-                    <div>
-                      <h3 className="font-medium text-blue-900">CopyTrade Portfolio: {copyTradeData.politician}</h3>
-                      <p className="text-sm text-blue-800">
-                        {copyTradeData.totalTrades} trades found • Last updated: {new Date(copyTradeData.lastUpdated).toLocaleDateString()}
-                      </p>
-                    </div>
-                    
-                    <div className="bg-white/60 p-3 rounded-lg">
-                      <h4 className="text-sm font-medium text-blue-900 mb-2">Weighted Portfolio Spread:</h4>
-                      <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {copyTradeData.weightedSpread.map((holding: any, idx: number) => (
-                          <div key={idx} className="flex items-center justify-between text-xs">
-                            <div>
-                              <span className="font-medium">{holding.symbol}</span>
-                              <span className="text-gray-600 ml-2">{holding.companyName}</span>
-                            </div>
-                            <div className="text-right">
-                              <div className="font-medium">{(holding.weight * 100).toFixed(1)}%</div>
-                              <div className="text-gray-600">{holding.trades} trades</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    {showInvestmentInput && (
-                      <div className="bg-white/60 p-4 rounded-lg space-y-3">
-                        <h4 className="text-sm font-medium text-blue-900">
-                          Would you like to invest in a weighted spread of this copytrade portfolio?
-                        </h4>
-                        <div className="flex items-center space-x-3">
-                          <Input
-                            type="number"
-                            placeholder="Investment amount (e.g., 10000)"
-                            value={investmentAmount}
-                            onChange={(e) => setInvestmentAmount(e.target.value)}
-                            className="flex-1"
-                            disabled={isLoading}
-                          />
-                          <button
-                            onClick={handleInvestmentSubmit}
-                            disabled={isLoading || !investmentAmount}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                          >
-                            {isLoading ? 'Investing...' : 'Invest'}
-                          </button>
-                        </div>
-                        <p className="text-xs text-blue-700">
-                          This will create a weighted portfolio spread based on {copyTradeData.politician}'s trading activity.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
 
-            {/* CopyTrade Investment Results Display */}
-            {copyTradeInvestment && showProcessingContainer && (
-              <div className="glass-card p-6 border-green-200 bg-green-50/30 slide-in-bottom">
-                <div className="flex items-start space-x-4">
-                  <div className="p-3 bg-green-600 rounded-xl">
-                    <CheckCircleIcon className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="flex-1 space-y-3">
-                    <div>
-                      <h3 className="font-medium text-green-900">CopyTrade Investment Executed</h3>
-                      <p className="text-sm text-green-800">
-                        Politician: {copyTradeInvestment.politician}
-                      </p>
-                      <p className="text-sm text-green-800">
-                        Total Investment: {formatCurrency(copyTradeInvestment.totalInvestment)}
-                      </p>
-                    </div>
-                    
-                    <div className="bg-white/60 p-3 rounded-lg">
-                      <h4 className="text-sm font-medium text-green-900 mb-2">Holdings:</h4>
-                      <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {copyTradeInvestment.holdings?.map((holding: any, idx: number) => (
-                          <div key={idx} className="flex items-center justify-between text-xs">
-                            <div>
-                              <span className="font-medium">{holding.symbol}</span>
-                              <span className="text-gray-600 ml-2">
-                                {holding.shares} shares
-                              </span>
-                            </div>
-                            <span className="text-green-700">
-                              {formatCurrency(holding.value)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    <div className="bg-white/60 p-3 rounded-lg">
-                      <p className="text-sm text-green-800">
-                        Your {copyTradeInvestment.politician} copytrade portfolio has been created and is now 
-                        available in your portfolio dashboard.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Trade Recommendations Display - Integrated */}
             {tradeRecommendations && showProcessingContainer && (

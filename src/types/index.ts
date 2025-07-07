@@ -86,6 +86,7 @@ export interface AppConfig {
   alpacaApiKey: string;
   alpacaSecretKey: string;
   alpacaBaseUrl: string;
+  quiverApiKey: string;
   maxDailySpending: number;
   maxPositionSize: number;
   nodeEnv: string;
@@ -166,48 +167,14 @@ export interface ThirteenFIntent {
   investmentAmount?: number;
 }
 
-export interface CopyTradeIntent {
-  type: 'copytrade';
-  politician: string;
-  action: 'query' | 'invest';
-  investmentAmount?: number;
-  timeframe?: string;
-}
 
-export interface PoliticianTrade {
-  politician: string;
-  symbol: string;
-  companyName: string;
-  transactionType: 'buy' | 'sell';
-  transactionDate: string;
-  amount: string;
-  amountRange?: {
-    min: number;
-    max: number;
-  };
-  filingDate: string;
-  source: string;
-}
-
-export interface CopyTradePortfolio {
-  politician: string;
-  trades: PoliticianTrade[];
-  totalValue: number;
-  weightedSpread: Array<{
-    symbol: string;
-    weight: number;
-    reasoning: string;
-  }>;
-  lastUpdated: string;
-}
 
 export type AdvancedTradeIntent = 
   | (TradeIntent & { type: 'trade' })
   | HedgeIntent 
   | MarketAnalysisIntent 
   | TradeRecommendationIntent
-  | ThirteenFIntent
-  | CopyTradeIntent;
+  | ThirteenFIntent;
 
 export interface HedgeRecommendation {
   strategy: string;

@@ -146,6 +146,8 @@ export interface ThirteenFHolding {
   percentOfPortfolio: number
   changeFromPrevious?: number
   changePercent?: number
+  cusip?: string
+  pricePerShare?: number
 }
 
 export interface ThirteenFPortfolio {
@@ -155,6 +157,29 @@ export interface ThirteenFPortfolio {
   totalValue: number
   holdings: ThirteenFHolding[]
   quarterEndDate: string
+  formType?: string
+  documentCount?: number
+  amendmentFlag?: boolean
+  // Enhanced analytics
+  analytics?: {
+    topSectors: Array<{ sector: string; percentage: number; value: number }>
+    diversificationScore: number
+    concentrationRisk: number
+    avgHoldingSize: number
+    quarterlyChange: {
+      totalValue: number
+      totalValuePercent: number
+      newPositions: number
+      closedPositions: number
+      increasedPositions: number
+      decreasedPositions: number
+    }
+    performanceMetrics?: {
+      returnSinceLastFiling?: number
+      volatility?: number
+      sharpeRatio?: number
+    }
+  }
 }
 
 export interface PortfolioBasket {
@@ -304,42 +329,7 @@ export const apiService = {
     return api.delete(`/baskets/${basketId}`).then(res => res.data)
   },
 
-  // CopyTrade operations
-  queryCopyTrade(intent: any): Promise<{ 
-    politician: string
-    trades: any[]
-    weightedSpread: any[]
-    totalTrades: number
-    lastUpdated: string
-  }> {
-    return api.post('/copytrade/query', {
-      politician: intent.politician,
-      timeframe: intent.timeframe || '6months'
-    }).then(res => res.data)
-  },
 
-  investCopyTrade(intent: any, investmentAmount: number): Promise<{
-    success: boolean
-    basketId: string
-    politician: string
-    totalInvestment: number
-    holdings: any[]
-    status: string
-  }> {
-    return api.post('/copytrade/invest', {
-      politician: intent.politician,
-      investmentAmount,
-      timeframe: intent.timeframe || '6months'
-    }).then(res => res.data)
-  },
-
-  getCopyTradeBaskets(): Promise<any[]> {
-    return api.get('/copytrade/baskets').then(res => res.data)
-  },
-
-  getCopyTradeBasket(basketId: string): Promise<any> {
-    return api.get(`/copytrade/baskets/${basketId}`).then(res => res.data)
-  },
 }
 
 // WebSocket connection for real-time data

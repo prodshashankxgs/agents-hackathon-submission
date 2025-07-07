@@ -1,6 +1,7 @@
 import fetch from 'node-fetch';
 import { TradingError } from '../types';
 import { BasketStorageService } from '../storage/basket-storage';
+import { config } from '../config';
 
 export interface ThirteenFHolding {
   symbol: string;
@@ -10,6 +11,11 @@ export interface ThirteenFHolding {
   percentOfPortfolio: number;
   changeFromPrevious?: number;
   changePercent?: number;
+  cusip?: string;
+  pricePerShare?: number;
+  sector?: string;
+  industry?: string;
+  marketCap?: number;
 }
 
 export interface ThirteenFPortfolio {
@@ -19,661 +25,492 @@ export interface ThirteenFPortfolio {
   totalValue: number;
   holdings: ThirteenFHolding[];
   quarterEndDate: string;
+  formType?: string;
+  documentCount?: number;
+  amendmentFlag?: boolean;
+  // Enhanced analytics
+  analytics?: {
+    topSectors: Array<{ sector: string; percentage: number; value: number }>;
+    diversificationScore: number;
+    concentrationRisk: number;
+    avgHoldingSize: number;
+    quarterlyChange: {
+      totalValue: number;
+      totalValuePercent: number;
+      newPositions: number;
+      closedPositions: number;
+      increasedPositions: number;
+      decreasedPositions: number;
+    };
+    performanceMetrics?: {
+      returnSinceLastFiling?: number;
+      volatility?: number;
+      sharpeRatio?: number;
+    };
+    riskMetrics?: {
+      betaWeighted?: number;
+      correlationToSP500?: number;
+      maxDrawdown?: number;
+    };
+  };
+  metadata?: {
+    dataSource: 'quiver' | 'mock';
+    lastUpdated: string;
+    cacheExpiry: string;
+    processingTime: number;
+  };
 }
 
-export interface PortfolioBasket {
-  id: string;
-  name: string;
-  institution: string;
-  createdAt: Date;
-  totalInvestment: number;
-  holdings: Array<{
+interface CacheEntry {
+  data: ThirteenFPortfolio;
+  timestamp: number;
+  expiry: number;
+}
+
+interface QuiverApiResponse {
+  data: Array<{
     symbol: string;
-    targetWeight: number;
-    actualShares: number;
-    actualValue: number;
-    orderId?: string;
+    companyName: string;
+    value: string;
+    shares: string;
+    [key: string]: any;
   }>;
-  status: 'pending' | 'executed' | 'partial' | 'failed';
+  filingDate: string;
+  totalValue: number;
+  [key: string]: any;
+}
+
+interface SectorMapping {
+  [symbol: string]: {
+    sector: string;
+    industry: string;
+    marketCap?: number;
+  };
 }
 
 export class ThirteenFService {
-  private static readonly SEC_BASE_URL = 'https://data.sec.gov';
-  private storage: BasketStorageService;
+  private cache = new Map<string, CacheEntry>();
+  private readonly CACHE_DURATION = 1000 * 60 * 60 * 4; // 4 hours
+  private readonly REQUEST_TIMEOUT = 30000; // 30 seconds
+  private readonly MAX_RETRIES = 3;
+  private readonly RATE_LIMIT_DELAY = 1000; // 1 second between requests
+  private lastRequestTime = 0;
+  
+  // Sector mapping cache for better performance
+  private sectorCache = new Map<string, SectorMapping[string]>();
+  
+  constructor(private basketStorage: BasketStorageService) {}
 
-  constructor() {
-    this.storage = new BasketStorageService();
-    this.initializeStorage();
-  }
+  /**
+   * Get 13F portfolio data with caching and error handling
+   */
+  async getPortfolio(institution: string, options: {
+    useCache?: boolean;
+    includeAnalytics?: boolean;
+    maxHoldings?: number;
+  } = {}): Promise<ThirteenFPortfolio> {
+    const {
+      useCache = true,
+      includeAnalytics = true,
+      maxHoldings = 200
+    } = options;
 
-  private async initializeStorage(): Promise<void> {
+    const cacheKey = `13f-${institution.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+    const startTime = Date.now();
+
     try {
-      await this.storage.initialize();
-    } catch (error) {
-      console.error('Failed to initialize basket storage:', error);
-    }
-  }
+      // Check cache first
+      if (useCache && this.cache.has(cacheKey)) {
+        const cached = this.cache.get(cacheKey)!;
+        if (Date.now() < cached.expiry) {
+          console.log(`📋 Using cached 13F data for ${institution}`);
+          return cached.data;
+        }
+        this.cache.delete(cacheKey);
+      }
 
-  // Known institution mappings for common names
-  private static readonly INSTITUTION_MAPPINGS: Record<string, { cik: string; name: string }> = {
-    'berkshire': { cik: '0001067983', name: 'Berkshire Hathaway Inc' },
-    'berkshire hathaway': { cik: '0001067983', name: 'Berkshire Hathaway Inc' },
-    'warren buffett': { cik: '0001067983', name: 'Berkshire Hathaway Inc' },
-    'bridgewater': { cik: '0001350694', name: 'Bridgewater Associates LP' },
-    'bridgewater associates': { cik: '0001350694', name: 'Bridgewater Associates LP' },
-    'ray dalio': { cik: '0001350694', name: 'Bridgewater Associates LP' },
-    'renaissance': { cik: '0001037389', name: 'Renaissance Technologies LLC' },
-    'renaissance technologies': { cik: '0001037389', name: 'Renaissance Technologies LLC' },
-    'rentech': { cik: '0001037389', name: 'Renaissance Technologies LLC' },
-    'jim simons': { cik: '0001037389', name: 'Renaissance Technologies LLC' },
-    'citadel': { cik: '0001423053', name: 'Citadel Advisors LLC' },
-    'ken griffin': { cik: '0001423053', name: 'Citadel Advisors LLC' },
-    'two sigma': { cik: '0001040273', name: 'Two Sigma Investments LP' },
-    'millennium': { cik: '0001040273', name: 'Millennium Management LLC' },
-    'aqr': { cik: '0001582652', name: 'AQR Capital Management LLC' },
-    'aqr capital': { cik: '0001582652', name: 'AQR Capital Management LLC' },
-    'elliott': { cik: '0001067983', name: 'Elliott Management Corp' },
-    'elliott management': { cik: '0001067983', name: 'Elliott Management Corp' },
-    'paul singer': { cik: '0001067983', name: 'Elliott Management Corp' }
-  };
+      // Rate limiting
+      await this.enforceRateLimit();
 
-  /**
-   * Get the latest 13F filing for an institution
-   */
-  async getLatest13F(institution: string): Promise<ThirteenFPortfolio> {
-    try {
-      // Normalize the institution name
-      const normalizedName = institution.toLowerCase().trim();
+      let portfolio: ThirteenFPortfolio;
       
-      // Try to find a known mapping first
-      const mapping = this.findInstitutionMapping(normalizedName);
-      
-      if (mapping) {
-        return await this.get13FByMapping(mapping, institution);
+      if (config.quiverApiKey) {
+        console.log(`🔍 Fetching real 13F data for ${institution} from QuiverQuant`);
+        portfolio = await this.fetchFromQuiverQuant(institution, maxHoldings);
+      } else {
+        console.log(`🎭 Using mock 13F data for ${institution} (no API key)`);
+        portfolio = await this.generateMockPortfolio(institution, maxHoldings);
       }
-      
-      // If no mapping found, try to generate synthetic data based on the institution name
-      return await this.generateSynthetic13F(institution);
-      
-    } catch (error) {
-      if (error instanceof TradingError) {
-        throw error;
+
+      // Add analytics if requested
+      if (includeAnalytics) {
+        const analytics = await this.calculateAnalytics(portfolio);
+        if (analytics) {
+          portfolio.analytics = analytics;
+        }
       }
-      throw new TradingError('Failed to fetch 13F data', 'FETCH_ERROR', {
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  }
 
-  /**
-   * Find institution mapping by checking various name variations
-   */
-  private findInstitutionMapping(normalizedName: string): { cik: string; name: string } | null {
-    // Direct match
-    if (ThirteenFService.INSTITUTION_MAPPINGS[normalizedName]) {
-      return ThirteenFService.INSTITUTION_MAPPINGS[normalizedName];
-    }
-    
-    // Partial match - check if any key is contained in the input
-    for (const [key, mapping] of Object.entries(ThirteenFService.INSTITUTION_MAPPINGS)) {
-      if (normalizedName.includes(key) || key.includes(normalizedName)) {
-        return mapping;
-      }
-    }
-    
-    return null;
-  }
-
-  /**
-   * Get 13F data using a known institution mapping
-   */
-  private async get13FByMapping(mapping: { cik: string; name: string }, originalInput: string): Promise<ThirteenFPortfolio> {
-    // For now, we'll use predefined data for known institutions
-    // In production, you would fetch from SEC EDGAR API using the CIK
-    
-    if (mapping.cik === '0001067983') { // Berkshire Hathaway
-      return await this.getBerkshire13F(mapping.name);
-    } else if (mapping.cik === '0001350694') { // Bridgewater
-      return await this.getBridgewater13F(mapping.name);
-    } else if (mapping.cik === '0001037389') { // Renaissance Technologies
-      return await this.getRenaissance13F(mapping.name);
-    } else if (mapping.cik === '0001423053') { // Citadel
-      return await this.getCitadel13F(mapping.name);
-    } else {
-      // For other known institutions, generate synthetic data
-      return await this.generateSynthetic13F(mapping.name);
-    }
-  }
-
-  /**
-   * Generate synthetic 13F data for unknown institutions
-   */
-  private async generateSynthetic13F(institution: string): Promise<ThirteenFPortfolio> {
-    // Create plausible synthetic holdings for demonstration
-    const syntheticHoldings: ThirteenFHolding[] = [
-      {
-        symbol: 'AAPL',
-        companyName: 'Apple Inc',
-        shares: 5000000,
-        marketValue: 950000000,
-        percentOfPortfolio: 15.8,
-        changeFromPrevious: 100000,
-        changePercent: 2.0
-      },
-      {
-        symbol: 'MSFT',
-        companyName: 'Microsoft Corporation',
-        shares: 3500000,
-        marketValue: 1330000000,
-        percentOfPortfolio: 22.2,
-        changeFromPrevious: 200000,
-        changePercent: 6.1
-      },
-      {
-        symbol: 'GOOGL',
-        companyName: 'Alphabet Inc Class A',
-        shares: 2800000,
-        marketValue: 392000000,
-        percentOfPortfolio: 6.5,
-        changeFromPrevious: -50000,
-        changePercent: -1.8
-      },
-      {
-        symbol: 'AMZN',
-        companyName: 'Amazon.com Inc',
-        shares: 4200000,
-        marketValue: 672000000,
-        percentOfPortfolio: 11.2,
-        changeFromPrevious: 150000,
-        changePercent: 3.7
-      },
-      {
-        symbol: 'TSLA',
-        companyName: 'Tesla Inc',
-        shares: 1800000,
-        marketValue: 360000000,
-        percentOfPortfolio: 6.0,
-        changeFromPrevious: -100000,
-        changePercent: -5.3
-      },
-      {
-        symbol: 'NVDA',
-        companyName: 'NVIDIA Corporation',
-        shares: 900000,
-        marketValue: 810000000,
-        percentOfPortfolio: 13.5,
-        changeFromPrevious: 50000,
-        changePercent: 5.9
-      },
-      {
-        symbol: 'META',
-        companyName: 'Meta Platforms Inc',
-        shares: 2100000,
-        marketValue: 567000000,
-        percentOfPortfolio: 9.5,
-        changeFromPrevious: 75000,
-        changePercent: 3.7
-      },
-      {
-        symbol: 'JPM',
-        companyName: 'JPMorgan Chase & Co',
-        shares: 3600000,
-        marketValue: 540000000,
-        percentOfPortfolio: 9.0,
-        changeFromPrevious: 0,
-        changePercent: 0
-      },
-      {
-        symbol: 'JNJ',
-        companyName: 'Johnson & Johnson',
-        shares: 2400000,
-        marketValue: 384000000,
-        percentOfPortfolio: 6.4,
-        changeFromPrevious: -25000,
-        changePercent: -1.0
-      }
-    ];
-
-    const totalValue = syntheticHoldings.reduce((sum, holding) => sum + holding.marketValue, 0);
-
-    return {
-      institution: institution,
-      cik: 'SYNTHETIC',
-      filingDate: new Date().toISOString().split('T')[0] || new Date().toISOString(),
-      quarterEndDate: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] || new Date().toISOString(),
-      totalValue,
-      holdings: syntheticHoldings.sort((a, b) => b.percentOfPortfolio - a.percentOfPortfolio)
-    };
-  }
-
-  /**
-   * Get Berkshire Hathaway's latest 13F filing
-   * Note: This is a simplified implementation. In production, you'd parse actual SEC EDGAR data
-   */
-  private async getBerkshire13F(institutionName: string = 'Berkshire Hathaway Inc'): Promise<ThirteenFPortfolio> {
-    // For demo purposes, using known Berkshire holdings as of recent filings
-    // In production, you would fetch this from SEC EDGAR API or a financial data provider
-    const holdings: ThirteenFHolding[] = [
-      {
-        symbol: 'AAPL',
-        companyName: 'Apple Inc',
-        shares: 916000000,
-        marketValue: 174000000000,
-        percentOfPortfolio: 47.4,
-        changeFromPrevious: -10000000,
-        changePercent: -1.1
-      },
-      {
-        symbol: 'BAC',
-        companyName: 'Bank of America Corp',
-        shares: 1032000000,
-        marketValue: 31500000000,
-        percentOfPortfolio: 8.6,
-        changeFromPrevious: 0,
-        changePercent: 0
-      },
-      {
-        symbol: 'CVX',
-        companyName: 'Chevron Corporation',
-        shares: 123000000,
-        marketValue: 18900000000,
-        percentOfPortfolio: 5.1,
-        changeFromPrevious: 0,
-        changePercent: 0
-      },
-      {
-        symbol: 'KO',
-        companyName: 'Coca-Cola Company',
-        shares: 400000000,
-        marketValue: 25200000000,
-        percentOfPortfolio: 6.9,
-        changeFromPrevious: 0,
-        changePercent: 0
-      },
-      {
-        symbol: 'AXP',
-        companyName: 'American Express Company',
-        shares: 151000000,
-        marketValue: 22800000000,
-        percentOfPortfolio: 6.2,
-        changeFromPrevious: 0,
-        changePercent: 0
-      },
-      {
-        symbol: 'OXY',
-        companyName: 'Occidental Petroleum Corp',
-        shares: 248000000,
-        marketValue: 14500000000,
-        percentOfPortfolio: 3.9,
-        changeFromPrevious: 2000000,
-        changePercent: 0.8
-      },
-      {
-        symbol: 'KHC',
-        companyName: 'Kraft Heinz Company',
-        shares: 325000000,
-        marketValue: 11700000000,
-        percentOfPortfolio: 3.2,
-        changeFromPrevious: 0,
-        changePercent: 0
-      },
-      {
-        symbol: 'MCO',
-        companyName: 'Moody\'s Corporation',
-        shares: 24600000,
-        marketValue: 9200000000,
-        percentOfPortfolio: 2.5,
-        changeFromPrevious: 0,
-        changePercent: 0
-      },
-      {
-        symbol: 'DVA',
-        companyName: 'DaVita Inc',
-        shares: 36000000,
-        marketValue: 4100000000,
-        percentOfPortfolio: 1.1,
-        changeFromPrevious: 0,
-        changePercent: 0
-      },
-      {
-        symbol: 'HPQ',
-        companyName: 'HP Inc',
-        shares: 104000000,
-        marketValue: 3100000000,
-        percentOfPortfolio: 0.8,
-        changeFromPrevious: 0,
-        changePercent: 0
-      }
-    ];
-
-    const totalValue = holdings.reduce((sum, holding) => sum + holding.marketValue, 0);
-
-    return {
-      institution: institutionName,
-      cik: '0001067983',
-      filingDate: '2024-02-14',
-      quarterEndDate: '2023-12-31',
-      totalValue,
-      holdings: holdings.sort((a, b) => b.percentOfPortfolio - a.percentOfPortfolio)
-    };
-  }
-
-  /**
-   * Get Bridgewater Associates' latest 13F filing
-   */
-  private async getBridgewater13F(institutionName: string): Promise<ThirteenFPortfolio> {
-    const holdings: ThirteenFHolding[] = [
-      {
-        symbol: 'SPY',
-        companyName: 'SPDR S&P 500 ETF Trust',
-        shares: 45000000,
-        marketValue: 20250000000,
-        percentOfPortfolio: 18.5,
-        changeFromPrevious: 2000000,
-        changePercent: 4.7
-      },
-      {
-        symbol: 'VTI',
-        companyName: 'Vanguard Total Stock Market ETF',
-        shares: 35000000,
-        marketValue: 8400000000,
-        percentOfPortfolio: 7.7,
-        changeFromPrevious: 1500000,
-        changePercent: 4.5
-      },
-      {
-        symbol: 'EEM',
-        companyName: 'iShares MSCI Emerging Markets ETF',
-        shares: 180000000,
-        marketValue: 7560000000,
-        percentOfPortfolio: 6.9,
-        changeFromPrevious: -5000000,
-        changePercent: -2.7
-      },
-      {
-        symbol: 'TLT',
-        companyName: 'iShares 20+ Year Treasury Bond ETF',
-        shares: 85000000,
-        marketValue: 8075000000,
-        percentOfPortfolio: 7.4,
-        changeFromPrevious: 3000000,
-        changePercent: 3.7
-      },
-      {
-        symbol: 'GLD',
-        companyName: 'SPDR Gold Shares',
-        shares: 25000000,
-        marketValue: 4750000000,
-        percentOfPortfolio: 4.3,
-        changeFromPrevious: 1000000,
-        changePercent: 4.2
-      }
-    ];
-
-    const totalValue = holdings.reduce((sum, holding) => sum + holding.marketValue, 0);
-
-    return {
-      institution: institutionName,
-      cik: '0001350694',
-      filingDate: '2024-02-14',
-      quarterEndDate: '2023-12-31',
-      totalValue,
-      holdings: holdings.sort((a, b) => b.percentOfPortfolio - a.percentOfPortfolio)
-    };
-  }
-
-  /**
-   * Get Renaissance Technologies' latest 13F filing
-   */
-  private async getRenaissance13F(institutionName: string): Promise<ThirteenFPortfolio> {
-    const holdings: ThirteenFHolding[] = [
-      {
-        symbol: 'NVDA',
-        companyName: 'NVIDIA Corporation',
-        shares: 8500000,
-        marketValue: 7650000000,
-        percentOfPortfolio: 12.8,
-        changeFromPrevious: 500000,
-        changePercent: 6.3
-      },
-      {
-        symbol: 'AMZN',
-        companyName: 'Amazon.com Inc',
-        shares: 42000000,
-        marketValue: 6720000000,
-        percentOfPortfolio: 11.2,
-        changeFromPrevious: 2000000,
-        changePercent: 5.0
-      },
-      {
-        symbol: 'GOOGL',
-        companyName: 'Alphabet Inc Class A',
-        shares: 38000000,
-        marketValue: 5320000000,
-        percentOfPortfolio: 8.9,
-        changeFromPrevious: -1000000,
-        changePercent: -2.6
-      },
-      {
-        symbol: 'TSLA',
-        companyName: 'Tesla Inc',
-        shares: 25000000,
-        marketValue: 5000000000,
-        percentOfPortfolio: 8.3,
-        changeFromPrevious: 1500000,
-        changePercent: 6.4
-      },
-      {
-        symbol: 'META',
-        companyName: 'Meta Platforms Inc',
-        shares: 18000000,
-        marketValue: 4860000000,
-        percentOfPortfolio: 8.1,
-        changeFromPrevious: 800000,
-        changePercent: 4.7
-      }
-    ];
-
-    const totalValue = holdings.reduce((sum, holding) => sum + holding.marketValue, 0);
-
-    return {
-      institution: institutionName,
-      cik: '0001037389',
-      filingDate: '2024-02-14',
-      quarterEndDate: '2023-12-31',
-      totalValue,
-      holdings: holdings.sort((a, b) => b.percentOfPortfolio - a.percentOfPortfolio)
-    };
-  }
-
-  /**
-   * Get Citadel's latest 13F filing
-   */
-  private async getCitadel13F(institutionName: string): Promise<ThirteenFPortfolio> {
-    const holdings: ThirteenFHolding[] = [
-      {
-        symbol: 'SPY',
-        companyName: 'SPDR S&P 500 ETF Trust',
-        shares: 75000000,
-        marketValue: 33750000000,
-        percentOfPortfolio: 15.2,
-        changeFromPrevious: 5000000,
-        changePercent: 7.1
-      },
-      {
-        symbol: 'QQQ',
-        companyName: 'Invesco QQQ Trust',
-        shares: 55000000,
-        marketValue: 20900000000,
-        percentOfPortfolio: 9.4,
-        changeFromPrevious: 2500000,
-        changePercent: 4.8
-      },
-      {
-        symbol: 'AAPL',
-        companyName: 'Apple Inc',
-        shares: 95000000,
-        marketValue: 18050000000,
-        percentOfPortfolio: 8.1,
-        changeFromPrevious: -3000000,
-        changePercent: -3.1
-      },
-      {
-        symbol: 'MSFT',
-        companyName: 'Microsoft Corporation',
-        shares: 38000000,
-        marketValue: 14440000000,
-        percentOfPortfolio: 6.5,
-        changeFromPrevious: 1200000,
-        changePercent: 3.3
-      },
-      {
-        symbol: 'AMZN',
-        companyName: 'Amazon.com Inc',
-        shares: 72000000,
-        marketValue: 11520000000,
-        percentOfPortfolio: 5.2,
-        changeFromPrevious: 3500000,
-        changePercent: 5.1
-      }
-    ];
-
-    const totalValue = holdings.reduce((sum, holding) => sum + holding.marketValue, 0);
-
-    return {
-      institution: institutionName,
-      cik: '0001423053',
-      filingDate: '2024-02-14',
-      quarterEndDate: '2023-12-31',
-      totalValue,
-      holdings: holdings.sort((a, b) => b.percentOfPortfolio - a.percentOfPortfolio)
-    };
-  }
-
-  /**
-   * Calculate portfolio allocation for a given investment amount
-   */
-  calculateAllocation(portfolio: ThirteenFPortfolio, investmentAmount: number): Array<{
-    symbol: string;
-    companyName: string;
-    targetWeight: number;
-    targetValue: number;
-    estimatedShares: number;
-  }> {
-    // Filter out holdings that are too small (less than 0.5% of portfolio)
-    const significantHoldings = portfolio.holdings.filter(h => h.percentOfPortfolio >= 0.5);
-    
-    // Recalculate weights for significant holdings only
-    const totalWeight = significantHoldings.reduce((sum, h) => sum + h.percentOfPortfolio, 0);
-    
-    return significantHoldings.map(holding => {
-      const normalizedWeight = holding.percentOfPortfolio / totalWeight;
-      const targetValue = Math.round(investmentAmount * normalizedWeight * 100) / 100; // Round to 2 decimal places
-      
-      // Estimate shares based on current market value and shares in 13F
-      const estimatedPrice = holding.marketValue / holding.shares;
-      const estimatedShares = Math.floor(targetValue / estimatedPrice);
-      
-      return {
-        symbol: holding.symbol,
-        companyName: holding.companyName,
-        targetWeight: normalizedWeight,
-        targetValue,
-        estimatedShares
+      // Add metadata
+      portfolio.metadata = {
+        dataSource: config.quiverApiKey ? 'quiver' : 'mock',
+        lastUpdated: new Date().toISOString(),
+        cacheExpiry: new Date(Date.now() + this.CACHE_DURATION).toISOString(),
+        processingTime: Date.now() - startTime
       };
-    });
+
+      // Cache the result
+      if (useCache) {
+        this.cache.set(cacheKey, {
+          data: portfolio,
+          timestamp: Date.now(),
+          expiry: Date.now() + this.CACHE_DURATION
+        });
+      }
+
+      return portfolio;
+      
+    } catch (error) {
+      console.error(`❌ Error fetching 13F data for ${institution}:`, error);
+      
+      // Fallback to cached data if available, even if expired
+      if (this.cache.has(cacheKey)) {
+        const cached = this.cache.get(cacheKey)!;
+        console.log(`🔄 Using expired cache as fallback for ${institution}`);
+        return cached.data;
+      }
+
+      // Final fallback to mock data
+      console.log(`🎭 Falling back to mock data for ${institution}`);
+      return this.generateMockPortfolio(institution, maxHoldings);
+    }
   }
 
   /**
-   * Create a new portfolio basket
+   * Fetch real data from QuiverQuant API
    */
-  createBasket(
+  private async fetchFromQuiverQuant(institution: string, maxHoldings: number): Promise<ThirteenFPortfolio> {
+    const url = `https://api.quiverquant.com/beta/bulk/13f/${encodeURIComponent(institution)}`;
+    
+    const response = await this.fetchWithRetry(url, {
+      headers: {
+        'Authorization': `Bearer ${config.quiverApiKey}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'NaturalLanguageTradingApp/1.0'
+      },
+      timeout: this.REQUEST_TIMEOUT
+    });
+
+    if (!response.ok) {
+      throw new TradingError(
+        `QuiverQuant API error: ${response.status} ${response.statusText}`,
+        'QUIVER_API_ERROR',
+        { status: response.status, institution }
+      );
+    }
+
+    const data: QuiverApiResponse = await response.json();
+    return this.processQuiverData(data, institution, maxHoldings);
+  }
+
+  /**
+   * Process QuiverQuant API response into our format
+   */
+  private async processQuiverData(data: QuiverApiResponse, institution: string, maxHoldings: number): Promise<ThirteenFPortfolio> {
+    if (!data.data || !Array.isArray(data.data)) {
+      throw new TradingError('Invalid QuiverQuant API response format', 'INVALID_API_RESPONSE');
+    }
+
+    const totalValue = data.totalValue || data.data.reduce((sum, item) => sum + parseFloat(item.value || '0'), 0);
+    
+    // Process holdings with enhanced data
+    const holdings: ThirteenFHolding[] = await Promise.all(
+      data.data
+        .filter(item => item.symbol && item.value && parseFloat(item.value) > 0)
+        .slice(0, maxHoldings)
+        .map(async (item): Promise<ThirteenFHolding> => {
+          const marketValue = parseFloat(item.value || '0');
+          const shares = parseInt(item.shares || '0');
+          
+          // Get sector information
+          const sectorInfo = await this.getSectorInfo(item.symbol);
+          
+          const holding: ThirteenFHolding = {
+            symbol: item.symbol,
+            companyName: item.companyName || item.symbol,
+            shares,
+            marketValue,
+            percentOfPortfolio: totalValue > 0 ? (marketValue / totalValue) * 100 : 0,
+            pricePerShare: shares > 0 ? marketValue / shares : 0
+          };
+
+          // Add optional fields only if they exist
+          if (item.cusip) holding.cusip = item.cusip;
+          if (sectorInfo?.sector) holding.sector = sectorInfo.sector;
+          if (sectorInfo?.industry) holding.industry = sectorInfo.industry;
+          if (sectorInfo?.marketCap) holding.marketCap = sectorInfo.marketCap;
+          if (item.changeFromPrevious) holding.changeFromPrevious = parseFloat(item.changeFromPrevious);
+          if (item.changePercent) holding.changePercent = parseFloat(item.changePercent);
+
+          return holding;
+        })
+    );
+
+    // Sort by portfolio percentage
+    holdings.sort((a: ThirteenFHolding, b: ThirteenFHolding) => b.percentOfPortfolio - a.percentOfPortfolio);
+
+    return {
+      institution,
+      cik: data.cik || '',
+      filingDate: data.filingDate || new Date().toISOString(),
+      totalValue,
+      holdings,
+      quarterEndDate: data.quarterEndDate || data.filingDate || new Date().toISOString(),
+      formType: data.formType || '13F-HR',
+      documentCount: holdings.length,
+      amendmentFlag: data.amendmentFlag || false
+    };
+  }
+
+  /**
+   * Get sector information for a symbol (with caching)
+   */
+  private async getSectorInfo(symbol: string): Promise<SectorMapping[string] | undefined> {
+    if (this.sectorCache.has(symbol)) {
+      return this.sectorCache.get(symbol);
+    }
+
+    try {
+      // This would typically call a financial data API
+      // For now, we'll use a basic mapping or return undefined
+      const sectorInfo = await this.fetchSectorInfo(symbol);
+      if (sectorInfo) {
+        this.sectorCache.set(symbol, sectorInfo);
+      }
+      return sectorInfo;
+    } catch (error) {
+      console.warn(`Could not fetch sector info for ${symbol}:`, error);
+      return undefined;
+    }
+  }
+
+  /**
+   * Fetch sector information from external API
+   */
+  private async fetchSectorInfo(symbol: string): Promise<SectorMapping[string] | undefined> {
+    // This is a placeholder - in production, you'd integrate with a financial data provider
+    // like Alpha Vantage, IEX Cloud, or similar
+    const basicSectorMap: { [key: string]: SectorMapping[string] } = {
+      'AAPL': { sector: 'Technology', industry: 'Consumer Electronics' },
+      'MSFT': { sector: 'Technology', industry: 'Software' },
+      'GOOGL': { sector: 'Technology', industry: 'Internet Services' },
+      'AMZN': { sector: 'Consumer Discretionary', industry: 'E-commerce' },
+      'TSLA': { sector: 'Consumer Discretionary', industry: 'Electric Vehicles' },
+      'NVDA': { sector: 'Technology', industry: 'Semiconductors' },
+      'META': { sector: 'Technology', industry: 'Social Media' },
+      'BRK.B': { sector: 'Financial Services', industry: 'Conglomerates' },
+      'JNJ': { sector: 'Healthcare', industry: 'Pharmaceuticals' },
+      'V': { sector: 'Financial Services', industry: 'Payment Processing' }
+    };
+
+    return basicSectorMap[symbol.toUpperCase()];
+  }
+
+  /**
+   * Calculate comprehensive analytics for the portfolio
+   */
+  private async calculateAnalytics(portfolio: ThirteenFPortfolio): Promise<ThirteenFPortfolio['analytics']> {
+    const holdings = portfolio.holdings;
+    const totalValue = portfolio.totalValue;
+
+    // Sector allocation
+    const sectorTotals: { [sector: string]: number } = {};
+    holdings.forEach(holding => {
+      const sector = holding.sector || 'Unknown';
+      sectorTotals[sector] = (sectorTotals[sector] || 0) + holding.marketValue;
+    });
+
+    const topSectors = Object.entries(sectorTotals)
+      .map(([sector, value]) => ({
+        sector,
+        value,
+        percentage: (value / totalValue) * 100
+      }))
+      .sort((a: { value: number }, b: { value: number }) => b.value - a.value)
+      .slice(0, 10);
+
+    // Diversification metrics
+    const top10Concentration = holdings.slice(0, 10).reduce((sum, h) => sum + h.percentOfPortfolio, 0);
+    const diversificationScore = Math.max(0, 100 - top10Concentration);
+    const avgHoldingSize = totalValue / holdings.length;
+
+    // Calculate Herfindahl-Hirschman Index for concentration
+    const hhi = holdings.reduce((sum, h) => sum + Math.pow(h.percentOfPortfolio, 2), 0);
+    const concentrationRisk = Math.min(100, hhi / 100); // Normalize to 0-100
+
+    return {
+      topSectors,
+      diversificationScore: Math.round(diversificationScore * 100) / 100,
+      concentrationRisk: Math.round(concentrationRisk * 100) / 100,
+      avgHoldingSize: Math.round(avgHoldingSize),
+      quarterlyChange: {
+        totalValue: 0, // Would need historical data
+        totalValuePercent: 0,
+        newPositions: holdings.filter(h => !h.changeFromPrevious).length,
+        closedPositions: 0,
+        increasedPositions: holdings.filter(h => (h.changePercent || 0) > 0).length,
+        decreasedPositions: holdings.filter(h => (h.changePercent || 0) < 0).length
+      }
+    };
+  }
+
+  /**
+   * Generate mock portfolio data for development/fallback
+   */
+  private async generateMockPortfolio(institution: string, maxHoldings: number): Promise<ThirteenFPortfolio> {
+    const mockHoldings: ThirteenFHolding[] = [
+      { symbol: 'AAPL', companyName: 'Apple Inc.', shares: 1000000, marketValue: 150000000, percentOfPortfolio: 15.0, sector: 'Technology', industry: 'Consumer Electronics' },
+      { symbol: 'MSFT', companyName: 'Microsoft Corporation', shares: 800000, marketValue: 120000000, percentOfPortfolio: 12.0, sector: 'Technology', industry: 'Software' },
+      { symbol: 'GOOGL', companyName: 'Alphabet Inc.', shares: 400000, marketValue: 100000000, percentOfPortfolio: 10.0, sector: 'Technology', industry: 'Internet Services' },
+      { symbol: 'AMZN', companyName: 'Amazon.com Inc.', shares: 300000, marketValue: 80000000, percentOfPortfolio: 8.0, sector: 'Consumer Discretionary', industry: 'E-commerce' },
+      { symbol: 'TSLA', companyName: 'Tesla Inc.', shares: 250000, marketValue: 70000000, percentOfPortfolio: 7.0, sector: 'Consumer Discretionary', industry: 'Electric Vehicles' },
+      { symbol: 'NVDA', companyName: 'NVIDIA Corporation', shares: 200000, marketValue: 60000000, percentOfPortfolio: 6.0, sector: 'Technology', industry: 'Semiconductors' },
+      { symbol: 'META', companyName: 'Meta Platforms Inc.', shares: 180000, marketValue: 50000000, percentOfPortfolio: 5.0, sector: 'Technology', industry: 'Social Media' },
+      { symbol: 'BRK.B', companyName: 'Berkshire Hathaway Inc.', shares: 150000, marketValue: 45000000, percentOfPortfolio: 4.5, sector: 'Financial Services', industry: 'Conglomerates' },
+      { symbol: 'JNJ', companyName: 'Johnson & Johnson', shares: 120000, marketValue: 40000000, percentOfPortfolio: 4.0, sector: 'Healthcare', industry: 'Pharmaceuticals' },
+      { symbol: 'V', companyName: 'Visa Inc.', shares: 100000, marketValue: 35000000, percentOfPortfolio: 3.5, sector: 'Financial Services', industry: 'Payment Processing' }
+    ].slice(0, maxHoldings);
+
+    const totalValue = mockHoldings.reduce((sum, h) => sum + h.marketValue, 0);
+
+    // Add price per share
+    mockHoldings.forEach(holding => {
+      holding.pricePerShare = holding.marketValue / holding.shares;
+    });
+
+    return {
+      institution,
+      cik: 'MOCK-CIK',
+      filingDate: new Date().toISOString(),
+      totalValue,
+      holdings: mockHoldings,
+      quarterEndDate: new Date().toISOString(),
+      formType: '13F-HR',
+      documentCount: mockHoldings.length,
+      amendmentFlag: false
+    };
+  }
+
+  /**
+   * Enforce rate limiting between API requests
+   */
+  private async enforceRateLimit(): Promise<void> {
+    const timeSinceLastRequest = Date.now() - this.lastRequestTime;
+    if (timeSinceLastRequest < this.RATE_LIMIT_DELAY) {
+      await new Promise(resolve => setTimeout(resolve, this.RATE_LIMIT_DELAY - timeSinceLastRequest));
+    }
+    this.lastRequestTime = Date.now();
+  }
+
+  /**
+   * Fetch with retry logic
+   */
+  private async fetchWithRetry(url: string, options: any, retries = 0): Promise<any> {
+    try {
+      return await fetch(url, options);
+    } catch (error) {
+      if (retries < this.MAX_RETRIES) {
+        console.log(`🔄 Retrying request to ${url} (attempt ${retries + 1}/${this.MAX_RETRIES})`);
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retries) * 1000));
+        return this.fetchWithRetry(url, options, retries + 1);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Clear cache (useful for testing or manual refresh)
+   */
+  public clearCache(): void {
+    this.cache.clear();
+    this.sectorCache.clear();
+    console.log('🧹 13F service cache cleared');
+  }
+
+  /**
+   * Get cache statistics
+   */
+  public getCacheStats(): { entries: number; size: number; oldestEntry?: string } {
+    const entries = this.cache.size;
+    const size = JSON.stringify([...this.cache.entries()]).length;
+    
+    if (entries > 0) {
+      const oldest = Math.min(...[...this.cache.values()].map(entry => entry.timestamp));
+      return { entries, size, oldestEntry: new Date(oldest).toISOString() };
+    }
+
+    return { entries, size };
+  }
+
+  /**
+   * Create a weighted investment basket from a 13F portfolio
+   */
+  async createInvestmentBasket(
     institution: string,
     investmentAmount: number,
-    allocation: Array<{
-      symbol: string;
-      targetWeight: number;
-      targetValue: number;
-      estimatedShares: number;
-    }>
-  ): PortfolioBasket {
-    const basketId = `basket_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    const basket: PortfolioBasket = {
-      id: basketId,
-      name: `${institution} Portfolio Spread`,
-      institution,
-      createdAt: new Date(),
-      totalInvestment: investmentAmount,
-      holdings: allocation.map(item => ({
-        symbol: item.symbol,
-        targetWeight: item.targetWeight,
-        actualShares: 0,
-        actualValue: 0
-      })),
-      status: 'pending'
-    };
+    options: {
+      minHoldingPercent?: number;
+      maxPositions?: number;
+      rebalanceThreshold?: number;
+    } = {}
+  ): Promise<any> {
+    const {
+      minHoldingPercent = 0.5,
+      maxPositions = 20,
+      rebalanceThreshold = 0.1
+    } = options;
 
-    // Save to persistent storage
-    this.storage.saveBasket(basket).catch(error => {
-      console.error('Failed to save basket:', error);
+    const portfolio = await this.getPortfolio(institution);
+    const eligibleHoldings = portfolio.holdings.filter(h => h.percentOfPortfolio >= minHoldingPercent);
+    const topHoldings = eligibleHoldings.slice(0, maxPositions);
+
+    // Calculate weights and allocations
+    const totalWeight = topHoldings.reduce((sum, h) => sum + h.percentOfPortfolio, 0);
+    const allocations = topHoldings.map(holding => ({
+      symbol: holding.symbol,
+      companyName: holding.companyName,
+      targetWeight: (holding.percentOfPortfolio / totalWeight) * 100,
+      targetValue: (holding.percentOfPortfolio / totalWeight) * investmentAmount,
+      originalWeight: holding.percentOfPortfolio
+    }));
+
+    // Store in basket storage
+    const basketId = `13f-${institution.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${Date.now()}`;
+    await this.basketStorage.saveBasket({
+      id: basketId,
+      name: `${institution} 13F Portfolio`,
+      description: `Weighted allocation based on ${institution}'s latest 13F filing`,
+      allocations,
+      totalValue: investmentAmount,
+      createdAt: new Date().toISOString(),
+      metadata: {
+        source: '13f',
+        institution,
+        filingDate: portfolio.filingDate,
+        totalPositions: allocations.length,
+        rebalanceThreshold
+      }
     });
 
-    return basket;
-  }
-
-  /**
-   * Update basket with execution results
-   */
-  async updateBasketExecution(
-    basketId: string,
-    symbol: string,
-    shares: number,
-    value: number,
-    orderId: string
-  ): Promise<void> {
-    try {
-      await this.storage.updateBasketExecution(basketId, symbol, shares, value, orderId);
-    } catch (error) {
-      console.error('Failed to update basket execution:', error);
-      throw new TradingError('Failed to update basket execution', 'BASKET_UPDATE_ERROR');
-    }
-  }
-
-  /**
-   * Get all baskets
-   */
-  async getAllBaskets(): Promise<PortfolioBasket[]> {
-    try {
-      return await this.storage.getBaskets();
-    } catch (error) {
-      console.error('Failed to get baskets:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Get basket by ID
-   */
-  async getBasket(basketId: string): Promise<PortfolioBasket | null> {
-    try {
-      return await this.storage.getBasket(basketId);
-    } catch (error) {
-      console.error('Failed to get basket:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Delete a basket
-   */
-  async deleteBasket(basketId: string): Promise<boolean> {
-    try {
-      await this.storage.deleteBasket(basketId);
-      return true;
-    } catch (error) {
-      console.error('Failed to delete basket:', error);
-      return false;
-    }
+    return {
+      basketId,
+      allocations,
+      totalValue: investmentAmount,
+      metadata: {
+        institution,
+        filingDate: portfolio.filingDate,
+        positionsIncluded: allocations.length,
+        totalPortfolioValue: portfolio.totalValue
+      }
+    };
   }
 } 

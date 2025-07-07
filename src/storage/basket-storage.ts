@@ -1,7 +1,32 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { PortfolioBasket } from '../services/thirteenth-f-service';
 import { cacheService } from '../cache/cache-service';
+
+export interface PortfolioBasket {
+  id: string;
+  name: string;
+  description?: string | undefined;
+  institution?: string | undefined;
+  createdAt: string | Date;
+  totalValue: number;
+  allocations: Array<{
+    symbol: string;
+    companyName?: string | undefined;
+    targetWeight: number;
+    targetValue: number;
+    actualShares?: number | undefined;
+    actualValue?: number | undefined;
+    orderId?: string | undefined;
+  }>;
+  metadata?: {
+    source?: string | undefined;
+    institution?: string | undefined;
+    filingDate?: string | undefined;
+    totalPositions?: number | undefined;
+    rebalanceThreshold?: number | undefined;
+  } | undefined;
+  status?: 'pending' | 'executed' | 'partial' | 'failed' | undefined;
+}
 
 export interface StoredBasket extends PortfolioBasket {
   updatedAt: Date;
@@ -75,9 +100,9 @@ export class BasketStorageService {
       const baskets = await this.loadBaskets();
       const existingIndex = baskets.findIndex(b => b.id === basket.id);
       
-      // @ts-ignore - TypeScript has trouble inferring the spread type here
       const storedBasket: StoredBasket = {
         ...basket,
+        createdAt: typeof basket.createdAt === 'string' ? new Date(basket.createdAt) : basket.createdAt,
         updatedAt: new Date()
       };
 
@@ -111,10 +136,21 @@ export class BasketStorageService {
         throw new Error(`Basket with ID ${basketId} not found`);
       }
 
-      // @ts-ignore - TypeScript has trouble inferring the spread type here
+      const currentBasket = baskets[basketIndex];
+      if (!currentBasket) {
+        throw new Error(`Basket with ID ${basketId} not found`);
+      }
+      
       const updatedBasket: StoredBasket = {
-        ...baskets[basketIndex],
-        ...updates,
+        id: currentBasket.id,
+        name: updates.name !== undefined ? updates.name : currentBasket.name,
+        description: updates.description !== undefined ? updates.description : currentBasket.description,
+        institution: updates.institution !== undefined ? updates.institution : currentBasket.institution,
+        createdAt: currentBasket.createdAt,
+        totalValue: updates.totalValue !== undefined ? updates.totalValue : currentBasket.totalValue,
+        allocations: updates.allocations !== undefined ? updates.allocations : currentBasket.allocations,
+        metadata: updates.metadata !== undefined ? updates.metadata : currentBasket.metadata,
+        status: updates.status !== undefined ? updates.status : currentBasket.status,
         updatedAt: new Date()
       };
 
@@ -200,28 +236,30 @@ export class BasketStorageService {
         throw new Error(`Basket with ID ${basketId} not found`);
       }
 
-      const holdingIndex = basket.holdings.findIndex(h => h.symbol === symbol);
+      const holdingIndex = basket.allocations.findIndex((h: any) => h.symbol === symbol);
       
       if (holdingIndex === -1) {
         throw new Error(`Holding ${symbol} not found in basket ${basketId}`);
       }
 
-      const existingHolding = basket.holdings[holdingIndex];
+      const existingHolding = basket.allocations[holdingIndex];
       if (!existingHolding) {
         throw new Error(`Holding ${symbol} not found in basket ${basketId}`);
       }
 
-      basket.holdings[holdingIndex] = {
+      basket.allocations[holdingIndex] = {
         symbol: existingHolding.symbol,
+        companyName: existingHolding.companyName,
         targetWeight: existingHolding.targetWeight,
+        targetValue: existingHolding.targetValue,
         actualShares,
         actualValue,
         orderId
       };
 
       // Update basket status based on execution progress
-      const totalExecuted = basket.holdings.filter(h => h.orderId).length;
-      const totalHoldings = basket.holdings.length;
+      const totalExecuted = basket.allocations.filter((h: any) => h.orderId).length;
+      const totalHoldings = basket.allocations.length;
       
       if (totalExecuted === totalHoldings) {
         basket.status = 'executed';
@@ -229,14 +267,8 @@ export class BasketStorageService {
         basket.status = 'partial';
       }
 
-      basket.updatedAt = new Date();
-      
-      // Write to file and update cache atomically
-      await fs.writeFile(this.basketsFile, JSON.stringify(baskets, null, 2));
-      
-      // Update cache
-      this.basketsCache = baskets;
-      this.cacheTimestamp = Date.now();
+      // Save updated basket
+      await this.updateBasket(basketId, basket);
     } catch (error) {
       console.error('Error updating basket execution:', error);
       throw new Error('Failed to update basket execution');
@@ -244,7 +276,7 @@ export class BasketStorageService {
   }
 
   /**
-   * Get baskets with optional filtering
+   * Get all baskets with optional filtering
    */
   async getBaskets(filters?: {
     status?: string;
@@ -261,12 +293,16 @@ export class BasketStorageService {
       
       if (filters?.institution) {
         baskets = baskets.filter(b => 
-          b.institution.toLowerCase().includes(filters.institution!.toLowerCase())
+          b.institution?.toLowerCase().includes(filters.institution!.toLowerCase())
         );
       }
       
       // Sort by creation date (newest first)
-      baskets.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      baskets.sort((a, b) => {
+        const aDate = a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt);
+        const bDate = b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt);
+        return bDate.getTime() - aDate.getTime();
+      });
       
       // Apply limit
       if (filters?.limit) {
@@ -275,7 +311,7 @@ export class BasketStorageService {
       
       return baskets;
     } catch (error) {
-      console.error('Error getting baskets with filters:', error);
+      console.error('Error getting baskets:', error);
       return [];
     }
   }

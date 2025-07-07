@@ -10,6 +10,7 @@ console.log('🔍 Environment variables debug:');
 console.log('Current working directory:', process.cwd());
 console.log('OPENAI_API_KEY exists:', !!process.env.OPENAI_API_KEY);
 console.log('ALPACA_API_KEY exists:', !!process.env.ALPACA_API_KEY);
+console.log('QUIVER_API_KEY exists:', !!process.env.QUIVER_API_KEY);
 
 export function loadConfig(): AppConfig {
   const isDevelopment = process.env.NODE_ENV !== 'production';
@@ -29,10 +30,12 @@ export function loadConfig(): AppConfig {
       console.warn('ALPACA_API_KEY=your_alpaca_api_key');
       console.warn('ALPACA_SECRET_KEY=your_alpaca_secret_key');
       console.warn('ALPACA_BASE_URL=https://paper-api.alpaca.markets');
+      console.warn('QUIVER_API_KEY=your_quiver_api_key (optional)');
       console.warn('----------------------------------------');
       console.warn('\n🔗 Get your API keys from:');
       console.warn('   - OpenAI: https://platform.openai.com/api-keys');
       console.warn('   - Alpaca: https://app.alpaca.markets/');
+      console.warn('   - QuiverQuant: https://api.quiverquant.com/ (for real 13F data)');
       console.warn('\n⚡ Running in development mode with mock values...\n');
     }
   }
@@ -58,6 +61,7 @@ export function loadConfig(): AppConfig {
     alpacaApiKey: process.env.ALPACA_API_KEY || (isDevelopment ? 'development-mock-key' : ''),
     alpacaSecretKey: process.env.ALPACA_SECRET_KEY || (isDevelopment ? 'development-mock-secret' : ''),
     alpacaBaseUrl: process.env.ALPACA_BASE_URL || 'https://paper-api.alpaca.markets',
+    quiverApiKey: process.env.QUIVER_API_KEY || '', // Optional for enhanced 13F data
     maxDailySpending: parseInt(process.env.MAX_DAILY_SPENDING || '1000'),
     maxPositionSize: parseInt(process.env.MAX_POSITION_SIZE || '500'),
     nodeEnv: process.env.NODE_ENV || 'development',

@@ -6,7 +6,6 @@ import {
   MarketAnalysisIntent, 
   TradeRecommendationIntent,
   ThirteenFIntent,
-  CopyTradeIntent,
   HedgeRecommendation,
   MarketAnalysis,
   LLMError,
@@ -103,8 +102,6 @@ export class AdvancedTradingService {
         result = await this.parseRecommendationIntent(userInput);
       } else if (intentType === '13f') {
         result = await this.parse13FIntent(userInput);
-      } else if (intentType === 'copytrade') {
-        result = await this.parseCopyTradeIntent(userInput);
       } else {
         // Fallback to trade
         const tradeIntent = await this.basicService.parseTradeIntent(userInput);
@@ -142,7 +139,6 @@ export class AdvancedTradingService {
 - "analysis": Market analysis or technical/fundamental analysis
 - "recommendation": Investment recommendations or "what should I buy/sell" questions
 - "13f": Questions about institutional holdings or 13F filings
-- "copytrade": Copy trading politicians or specific investors
 
 Respond with just the category name (e.g., "trade", "hedge", etc.)`
       },
@@ -599,48 +595,5 @@ Respond with a JSON object:
     return this.extractJSON(content);
   }
 
-  /**
-   * Parse copytrade intent from natural language
-   */
-  private async parseCopyTradeIntent(userInput: string): Promise<CopyTradeIntent> {
-    const messages: OpenAI.ChatCompletionMessageParam[] = [
-      {
-        role: 'system',
-        content: `Parse this copytrade request and extract the politician name and action.
 
-Extract:
-- politician: The politician's name (e.g., "Nancy Pelosi", "Paul Pelosi", "Dan Crenshaw")
-- action: Either "query" (just show trades) or "invest" (create portfolio)
-- investmentAmount: If mentioned, the dollar amount to invest
-- timeframe: Time period for trades (e.g., "6months", "1year", "recent")
-
-Respond with JSON only:
-{
-  "type": "copytrade",
-  "politician": "politician name",
-  "action": "query" or "invest",
-  "investmentAmount": number or null,
-  "timeframe": "timeframe" or null
-}`
-      },
-      {
-        role: 'user',
-        content: userInput
-      }
-    ];
-
-    const response = await this.openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages,
-      max_tokens: 200,
-      temperature: 0
-    });
-
-    const content = response.choices[0]?.message?.content;
-    if (!content) {
-      throw new LLMError('Empty response from OpenAI');
-    }
-
-    return this.extractJSON(content);
-  }
 } 

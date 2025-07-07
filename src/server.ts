@@ -7,7 +7,7 @@ import { AdvancedTradingService } from './llm/advanced-trading-service';
 import { AlpacaAdapter } from './brokers/alpaca-adapter';
 import { ValidationService } from './trading/validation-service';
 import { ThirteenFService } from './services/thirteenth-f-service';
-import { CopyTradeService } from './services/copytrade-service';
+import { BasketStorageService } from './storage/basket-storage';
 import { TradeIntent, CLIOptions, TradingError } from './types';
 import { brokerLimiter } from './utils/concurrency-limiter';
 import { performanceMiddleware, performanceMonitor } from './utils/performance-monitor';
@@ -25,8 +25,8 @@ const openaiService = new OpenAIService();
 const advancedTrading = new AdvancedTradingService();
 const broker = new AlpacaAdapter();
 const validator = new ValidationService(broker);
-const thirteenFService = new ThirteenFService();
-const copyTradeService = new CopyTradeService(broker);
+const basketStorage = new BasketStorageService();
+const thirteenFService = new ThirteenFService(basketStorage);
 
 // Development mode warnings
 if (config.nodeEnv === 'development') {
@@ -356,7 +356,7 @@ app.post('/api/advanced/13f', async (req, res) => {
       return res.status(400).json({ error: 'Invalid 13F intent' });
     }
 
-    const portfolio = await thirteenFService.getLatest13F(intent.institution);
+    const portfolio = await thirteenFService.getPortfolio(intent.institution);
     
     return res.json({ portfolio });
   } catch (error) {
@@ -377,19 +377,17 @@ app.post('/api/advanced/13f/invest', async (req, res) => {
       return res.status(400).json({ error: 'Valid investment amount required' });
     }
 
-    // Get the 13F portfolio
-    const portfolio = await thirteenFService.getLatest13F(intent.institution);
-    
-    // Calculate allocation
-    const allocation = thirteenFService.calculateAllocation(portfolio, investmentAmount);
-    
-    // Create basket
-    const basket = thirteenFService.createBasket(intent.institution, investmentAmount, allocation);
+    // Create investment basket using the new service method
+    const basketResult = await thirteenFService.createInvestmentBasket(
+      intent.institution, 
+      investmentAmount,
+      { minHoldingPercent: 0.5, maxPositions: 20 }
+    );
     
     // Execute trades for each holding using notional (dollar) amounts - PARALLEL EXECUTION
-    console.log(`🚀 Executing ${allocation.length} trades in parallel for maximum speed...`);
+    console.log(`🚀 Executing ${basketResult.allocations.length} trades in parallel for maximum speed...`);
     
-    const tradePromises = allocation.map(async (item) => {
+    const tradePromises = basketResult.allocations.map(async (item: any) => {
       if (item.targetValue <= 0) {
         return {
           symbol: item.symbol,
@@ -412,19 +410,6 @@ app.post('/api/advanced/13f/invest', async (req, res) => {
         
         const result = await broker.executeOrder(tradeIntent);
         
-        // Update basket execution asynchronously - don't wait for it to complete
-        if (result.success && result.orderId) {
-          thirteenFService.updateBasketExecution(
-            basket.id,
-            item.symbol,
-            result.executedShares || 0,
-            result.executedValue || item.targetValue,
-            result.orderId
-          ).catch(error => {
-            console.error(`Failed to update basket execution for ${item.symbol}:`, error);
-          });
-        }
-        
         console.log(`✅ Order executed for ${item.symbol}: ${result.success ? 'SUCCESS' : 'FAILED'} - ${result.message}`);
         
         return {
@@ -436,7 +421,7 @@ app.post('/api/advanced/13f/invest', async (req, res) => {
           executedValue: result.executedValue,
           executedShares: result.executedShares
         };
-      } catch (error) {
+      } catch (error: any) {
         console.error(`❌ Failed to execute trade for ${item.symbol}:`, error);
         return {
           symbol: item.symbol,
@@ -450,12 +435,12 @@ app.post('/api/advanced/13f/invest', async (req, res) => {
     // Wait for all trades to complete simultaneously
     const tradeResults = await Promise.all(tradePromises);
     
-    const successCount = tradeResults.filter(r => r.success).length;
+    const successCount = tradeResults.filter((r: any) => r.success).length;
     console.log(`🎯 Basket execution complete: ${successCount}/${tradeResults.length} trades successful`);
     
     return res.json({
-      basket,
-      allocation,
+      basket: basketResult,
+      allocation: basketResult.allocations,
       tradeResults
     });
   } catch (error) {
@@ -464,49 +449,12 @@ app.post('/api/advanced/13f/invest', async (req, res) => {
   }
 });
 
-// Advanced CopyTrade handler
-app.post('/api/advanced/copytrade', async (req, res) => {
-  try {
-    const { intent, investmentAmount } = req.body;
-    
-    if (!intent || intent.type !== 'copytrade') {
-      return res.status(400).json({ error: 'Invalid copytrade intent' });
-    }
-    
-    if (!investmentAmount || investmentAmount <= 0) {
-      return res.status(400).json({ error: 'Valid investment amount is required' });
-    }
-    
-    // Create weighted spread portfolio
-    const portfolio = await copyTradeService.createWeightedSpread(
-      intent.politician, 
-      investmentAmount, 
-      intent.timeframe || '6months'
-    );
-    
-    // Execute the copytrade if requested
-    let basket = null;
-    if (intent.shouldExecute) {
-      basket = await copyTradeService.executeCopyTrade(portfolio, investmentAmount);
-    }
-    
-    return res.json({
-      portfolio,
-      basket,
-      executed: !!basket
-    });
-  } catch (error) {
-    console.error('Advanced copytrade error:', error);
-    return res.status(500).json({ 
-      error: error instanceof Error ? error.message : 'Failed to process copytrade request' 
-    });
-  }
-});
+
 
 // Basket management endpoints
 app.get('/api/baskets', async (req, res) => {
   try {
-    const baskets = await thirteenFService.getAllBaskets();
+    const baskets = await basketStorage.getBaskets();
     return res.json({ baskets });
   } catch (error) {
     console.error('Get baskets error:', error);
@@ -517,7 +465,7 @@ app.get('/api/baskets', async (req, res) => {
 app.get('/api/baskets/:basketId', async (req, res) => {
   try {
     const { basketId } = req.params;
-    const basket = await thirteenFService.getBasket(basketId);
+    const basket = await basketStorage.getBasket(basketId);
     
     if (!basket) {
       return res.status(404).json({ error: 'Basket not found' });
@@ -533,11 +481,7 @@ app.get('/api/baskets/:basketId', async (req, res) => {
 app.delete('/api/baskets/:basketId', async (req, res) => {
   try {
     const { basketId } = req.params;
-    const deleted = await thirteenFService.deleteBasket(basketId);
-    
-    if (!deleted) {
-      return res.status(404).json({ error: 'Basket not found' });
-    }
+    await basketStorage.deleteBasket(basketId);
     
     return res.json({ success: true });
   } catch (error) {
@@ -546,89 +490,7 @@ app.delete('/api/baskets/:basketId', async (req, res) => {
   }
 });
 
-// CopyTrade endpoints
-app.post('/api/copytrade/query', async (req, res) => {
-  try {
-    const { politician, timeframe = '6months' } = req.body;
-    
-    if (!politician) {
-      return res.status(400).json({ error: 'Politician name is required' });
-    }
-    
-    const trades = await copyTradeService.getPoliticianTrades(politician, timeframe);
-    const portfolio = await copyTradeService.createWeightedSpread(politician, 10000, timeframe); // Default $10k for analysis
-    
-    return res.json({
-      politician,
-      trades,
-      weightedSpread: portfolio.weightedSpread,
-      totalTrades: trades.length,
-      lastUpdated: portfolio.lastUpdated
-    });
-  } catch (error) {
-    console.error('CopyTrade query error:', error);
-    return res.status(500).json({ 
-      error: error instanceof Error ? error.message : 'Failed to fetch politician trades' 
-    });
-  }
-});
 
-app.post('/api/copytrade/invest', async (req, res) => {
-  try {
-    const { politician, investmentAmount, timeframe = '6months' } = req.body;
-    
-    if (!politician) {
-      return res.status(400).json({ error: 'Politician name is required' });
-    }
-    
-    if (!investmentAmount || investmentAmount <= 0) {
-      return res.status(400).json({ error: 'Valid investment amount is required' });
-    }
-    
-    const portfolio = await copyTradeService.createWeightedSpread(politician, investmentAmount, timeframe);
-    const basket = await copyTradeService.executeCopyTrade(portfolio, investmentAmount);
-    
-    return res.json({
-      success: true,
-      basketId: basket.id,
-      politician: basket.politician,
-      totalInvestment: basket.totalInvestment,
-      holdings: basket.holdings,
-      status: basket.status
-    });
-  } catch (error) {
-    console.error('CopyTrade invest error:', error);
-    return res.status(500).json({ 
-      error: error instanceof Error ? error.message : 'Failed to execute copytrade investment' 
-    });
-  }
-});
-
-app.get('/api/copytrade/baskets', async (req, res) => {
-  try {
-    const baskets = await copyTradeService.getCopyTradeBaskets();
-    return res.json(baskets);
-  } catch (error) {
-    console.error('Get copytrade baskets error:', error);
-    return res.status(500).json({ error: 'Failed to fetch copytrade baskets' });
-  }
-});
-
-app.get('/api/copytrade/baskets/:basketId', async (req, res) => {
-  try {
-    const { basketId } = req.params;
-    const basket = await copyTradeService.getCopyTradeBasket(basketId);
-    
-    if (!basket) {
-      return res.status(404).json({ error: 'Copytrade basket not found' });
-    }
-    
-    return res.json(basket);
-  } catch (error) {
-    console.error('Get copytrade basket error:', error);
-    return res.status(500).json({ error: 'Failed to fetch copytrade basket' });
-  }
-});
 
 // Simplified command endpoints
 app.post('/api/command/parse', async (req, res) => {

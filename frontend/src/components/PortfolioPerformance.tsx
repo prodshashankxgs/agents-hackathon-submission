@@ -607,19 +607,19 @@ export function PortfolioPerformance({ accountInfo }: PortfolioPerformanceProps)
       <div className="brokerage-card p-4 sm:p-6">
         <div className="flex flex-col space-y-3 sm:space-y-4">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start space-y-3 sm:space-y-0">
-            <div>
+          <div>
               <h3 className="text-base sm:text-lg font-semibold text-gray-900">Portfolio Performance</h3>
-              <div className="flex flex-col space-y-1">
+            <div className="flex flex-col space-y-1">
                 <p className="text-xs sm:text-sm text-gray-600">Track your portfolio value over time</p>
-                {dataMessage && (
+              {dataMessage && (
                   <p className={`text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 rounded ${
-                    dataMessage.type === 'success' 
-                      ? 'text-green-600 bg-green-50' 
-                      : 'text-blue-600 bg-blue-50'
-                  }`}>
-                    {dataMessage.text}
-                  </p>
-                )}
+                  dataMessage.type === 'success' 
+                    ? 'text-green-600 bg-green-50' 
+                    : 'text-blue-600 bg-blue-50'
+                }`}>
+                  {dataMessage.text}
+                </p>
+              )}
               </div>
             </div>
           </div>

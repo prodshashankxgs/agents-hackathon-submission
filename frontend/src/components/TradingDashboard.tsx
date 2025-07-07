@@ -123,12 +123,12 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
         {/* Navigation with modern styling */}
         <nav className="flex-1 px-2 sm:px-3 py-2 sm:py-4 space-y-0.5 sm:space-y-1 overflow-y-auto">
           {navigationItems.map((item) => {
-            const Icon = item.icon
+              const Icon = item.icon
             const isActive = selectedTab === item.id
             
-            return (
-              <button
-                key={item.id}
+              return (
+                <button
+                  key={item.id}
                 onClick={() => {
                   setSelectedTab(item.id)
                   setIsMobileMenuOpen(false)
@@ -136,12 +136,12 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
                 className={`nav-item w-full text-xs sm:text-sm ${
                   isActive ? 'active' : 'text-gray-600 hover:text-gray-900'
                 }`}
-              >
+                >
                 <Icon className="w-4 sm:w-5 h-4 sm:h-5 flex-shrink-0" />
-                <span className="font-medium">{item.label}</span>
-              </button>
-            )
-          })}
+                  <span className="font-medium">{item.label}</span>
+                </button>
+              )
+            })}
         </nav>
 
         {/* Bottom Section with Account Status */}
@@ -157,7 +157,7 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
                 </span>
               </div>
             </div>
-
+          
             {/* Account Info Summary */}
             {accountInfo && (
               <div className="pt-2 sm:pt-3 border-t border-gray-100 space-y-2">
@@ -171,10 +171,10 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
                   <span className="text-xs text-gray-500">Buying Power</span>
                   <span className="text-xs sm:text-sm font-semibold text-gray-900">
                     {formatCurrency(accountInfo.buyingPower)}
-                  </span>
-                </div>
+                </span>
               </div>
-            )}
+            </div>
+          )}
 
             {/* Market Status Badge */}
             {marketStatus && (
