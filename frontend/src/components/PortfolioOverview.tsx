@@ -160,7 +160,7 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
     // Add cash position if there's available buying power
     if (accountInfo && accountInfo.buyingPower > 0) {
       const cashPercentage = accountInfo.portfolioValue > 0 ? (accountInfo.buyingPower / accountInfo.portfolioValue) * 100 : 0
-      if (cashPercentage > 0.5) {
+      if (cashPercentage > 0) {
         chartData.push({
           name: 'Cash',
           value: cashPercentage,
@@ -422,15 +422,15 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 lg:gap-8">
           {/* Modern Pie Chart */}
           <div className="flex flex-col items-center">
-            <div className="w-full h-64 sm:h-72 lg:h-80 portfolio-chart-enter">
+            <div className="w-full h-80 sm:h-96 lg:h-[28rem] portfolio-chart-enter">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={pieChartData}
                     cx="50%"
                     cy="50%"
-                    innerRadius={60}
-                    outerRadius={90}
+                    innerRadius={80}
+                    outerRadius={130}
                     paddingAngle={2}
                     dataKey="value"
                     animationBegin={0}
@@ -447,26 +447,6 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
                   <Tooltip content={<CustomTooltip />} />
                 </PieChart>
               </ResponsiveContainer>
-            </div>
-            
-            {/* Modern Legend */}
-            <div className="grid grid-cols-2 gap-2 sm:gap-3 mt-4 sm:mt-6 w-full max-w-md">
-              {pieChartData.slice(0, 6).map((entry, index) => (
-                <div 
-                  key={entry.name} 
-                  className="flex items-center space-x-2 sm:space-x-3 p-1.5 sm:p-2 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
-                  style={{ animationDelay: `${index * 50}ms` }}
-                >
-                  <div 
-                    className="w-2.5 sm:w-3 h-2.5 sm:h-3 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: entry.color }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs sm:text-sm font-medium text-gray-900 truncate">{entry.name}</p>
-                    <p className="text-[10px] sm:text-xs text-gray-500">{formatPercentage(entry.value)}</p>
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
 
