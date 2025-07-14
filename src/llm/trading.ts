@@ -31,29 +31,6 @@ export class AdvancedTradingService {
   }
 
   /**
-   * Extract JSON from LLM response text
-   */
-  private extractJsonFromResponse(text: string): any {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      try {
-        return JSON.parse(jsonMatch[0]);
-      } catch (e) {
-        // Fallback for incomplete JSON
-      }
-    }
-    const arrayMatch = text.match(/\[[\s\S]*\]/);
-    if (arrayMatch) {
-      try {
-        return JSON.parse(arrayMatch[0]);
-      } catch (e) {
-        // Fallback for incomplete JSON
-      }
-    }
-    throw new LLMError(`Failed to extract JSON from response: ${text.substring(0, 200)}...`);
-  }
-
-  /**
    * Parse complex natural language trading requests
    */
   async parseAdvancedIntent(userInput: string, accountInfo?: AccountInfo): Promise<AdvancedTradeIntent> {
@@ -163,6 +140,7 @@ If timeframe or risk_tolerance aren't specified, use reasonable defaults.`
     const response = await this.openai.chat.completions.create({
       model: this.liteModel,
       messages,
+      response_format: { type: 'json_object' },
       max_tokens: 300,
       temperature: 0.1
     });
@@ -172,14 +150,14 @@ If timeframe or risk_tolerance aren't specified, use reasonable defaults.`
       throw new LLMError('Empty response from OpenAI');
     }
 
-    const parsed = this.extractJsonFromResponse(content);
+    const parsed = JSON.parse(content);
     
     return {
       type: 'hedge',
       primarySymbol: parsed.primary_symbol,
       hedgeReason: parsed.hedge_reason,
       timeframe: parsed.timeframe,
-      riskTolerance: parsed.risk_tolerance || 'moderate'
+      riskTolerance: parsed.risk_tolerance
     };
   }
 
@@ -208,6 +186,7 @@ Extract all relevant stock symbols mentioned. If no specific timeframe is given,
     const response = await this.openai.chat.completions.create({
       model: this.liteModel,
       messages,
+      response_format: { type: 'json_object' },
       max_tokens: 300,
       temperature: 0.1
     });
@@ -217,7 +196,7 @@ Extract all relevant stock symbols mentioned. If no specific timeframe is given,
       throw new LLMError('Empty response from OpenAI');
     }
 
-    const parsed = this.extractJsonFromResponse(content);
+    const parsed = JSON.parse(content);
 
     return {
       type: 'analysis',
@@ -253,6 +232,7 @@ If they want to invest or copy the portfolio, use action "invest".`
     const response = await this.openai.chat.completions.create({
       model: this.liteModel,
       messages,
+      response_format: { type: 'json_object' },
       max_tokens: 300,
       temperature: 0.1
     });
@@ -262,7 +242,7 @@ If they want to invest or copy the portfolio, use action "invest".`
       throw new LLMError('Empty response from OpenAI');
     }
 
-    const parsed = this.extractJsonFromResponse(content);
+    const parsed = JSON.parse(content);
 
     return {
       type: '13f',
@@ -299,6 +279,7 @@ If specific details aren't mentioned, use reasonable defaults or null.`
     const response = await this.openai.chat.completions.create({
       model: this.liteModel,
       messages,
+      response_format: { type: 'json_object' },
       max_tokens: 300,
       temperature: 0.1
     });
@@ -308,7 +289,7 @@ If specific details aren't mentioned, use reasonable defaults or null.`
       throw new LLMError('Empty response from OpenAI');
     }
 
-    const parsed = this.extractJsonFromResponse(content);
+    const parsed = JSON.parse(content);
 
     return {
       type: 'recommendation',
@@ -374,6 +355,7 @@ Respond with a JSON object:
     const response = await this.openai.chat.completions.create({
       model: this.heavyModel,
       messages,
+      response_format: { type: 'json_object' },
       max_tokens: 1200,
       temperature: 0.2
     });
@@ -383,7 +365,7 @@ Respond with a JSON object:
       throw new LLMError('Empty response from OpenAI');
     }
 
-    return this.extractJsonFromResponse(content);
+    return JSON.parse(content);
   }
 
   /**
@@ -450,6 +432,7 @@ Please provide a detailed analysis in the following JSON format:
     const response = await this.openai.chat.completions.create({
       model: this.heavyModel,
       messages,
+      response_format: { type: 'json_object' },
       max_tokens: 1500,
       temperature: 0.2
     });
@@ -459,7 +442,7 @@ Please provide a detailed analysis in the following JSON format:
       throw new LLMError('Empty response from OpenAI');
     }
 
-    const jsonResponse = this.extractJsonFromResponse(content);
+    const jsonResponse = JSON.parse(content);
     this.generativeCache.set(cacheKey, { response: jsonResponse, timestamp: Date.now() });
     return jsonResponse;
   }
@@ -525,6 +508,7 @@ Provide comprehensive trading recommendations in the following JSON format:
     const response = await this.openai.chat.completions.create({
       model: this.heavyModel,
       messages,
+      response_format: { type: 'json_object' },
       max_tokens: 1500,
       temperature: 0.2
     });
@@ -534,7 +518,7 @@ Provide comprehensive trading recommendations in the following JSON format:
       throw new LLMError('Empty response from OpenAI');
     }
 
-    const jsonResponse = this.extractJsonFromResponse(content);
+    const jsonResponse = JSON.parse(content);
     this.generativeCache.set(cacheKey, { response: jsonResponse, timestamp: Date.now() });
     return jsonResponse;
   }

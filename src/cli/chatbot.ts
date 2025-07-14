@@ -1,7 +1,7 @@
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { OpenAIService } from '../llm/openai-service';
-import { AdvancedTradingService } from '../llm/advanced-trading-service';
+import { AdvancedTradingService } from '../llm/trading';
 import { AlpacaAdapter } from '../brokers/alpaca-adapter';
 import { ValidationService } from '../trading/validation-service';
 import { TradeIntent, AccountInfo, TradeResult, AdvancedTradeIntent } from '../types';
@@ -432,7 +432,7 @@ export class TradingChatbot {
     console.log(recommendation.strategy);
     
     console.log('\n' + chalk.white('Hedging Instruments:'));
-    recommendation.instruments.forEach(instrument => {
+    recommendation.instruments.forEach((instrument: any) => {
       console.log(`• ${instrument.action.toUpperCase()} ${instrument.quantity} ${instrument.symbol} (${instrument.type})`);
       console.log(`  Reasoning: ${instrument.reasoning}`);
     });
@@ -442,7 +442,7 @@ export class TradingChatbot {
     console.log(`• Risk reduction: ${recommendation.riskReduction}%`);
     console.log(`• Timeline: ${recommendation.timeline}`);
     console.log('\n' + chalk.white('Exit Conditions:'));
-    recommendation.exitConditions.forEach(condition => {
+    recommendation.exitConditions.forEach((condition: any) => {
       console.log(`• ${condition}`);
     });
     
@@ -465,31 +465,29 @@ export class TradingChatbot {
     }
     
     // Perform analysis
-    const analyses = await this.advancedTrading.performMarketAnalysis(analysisIntent, marketData);
+    const analysis = await this.advancedTrading.performMarketAnalysis(analysisIntent, marketData);
     
-    for (const analysis of analyses) {
-      console.log('\n' + chalk.white(`Analysis for ${analysis.symbol}:`));
-      
-      console.log(`\n${chalk.yellow('Sentiment:')} ${analysis.sentiment.toUpperCase()}`);
-      console.log(`${chalk.white('Confidence:')} ${analysis.confidence}%`);
-      console.log(`${chalk.white('Price Target:')} $${analysis.priceTarget.toFixed(2)}`);
-      
-      if (analysis.riskFactors.length > 0) {
-        console.log('\n' + chalk.red('Risk Factors:'));
-        analysis.riskFactors.forEach((risk: string) => console.log(`• ${risk}`));
-      }
-      
-      if (analysis.opportunities.length > 0) {
-        console.log('\n' + chalk.green('Opportunities:'));
-        analysis.opportunities.forEach((opp: string) => console.log(`• ${opp}`));
-      }
-      
-      console.log('\n' + chalk.white('Recommendation:'));
-      console.log(`${analysis.recommendation.toUpperCase()}`);
-      
-      console.log('\n' + chalk.white('Reasoning:'));
-      console.log(analysis.reasoning);
+    console.log('\n' + chalk.white(`Analysis for ${analysis.symbol}:`));
+    
+    console.log(`\n${chalk.yellow('Sentiment:')} ${analysis.sentiment.toUpperCase()}`);
+    console.log(`${chalk.white('Confidence:')} ${analysis.confidence}%`);
+    console.log(`${chalk.white('Price Target:')} $${analysis.priceTarget.toFixed(2)}`);
+    
+    if (analysis.riskFactors.length > 0) {
+      console.log('\n' + chalk.red('Risk Factors:'));
+      analysis.riskFactors.forEach((risk: string) => console.log(`• ${risk}`));
     }
+    
+    if (analysis.opportunities.length > 0) {
+      console.log('\n' + chalk.green('Opportunities:'));
+      analysis.opportunities.forEach((opp: string) => console.log(`• ${opp}`));
+    }
+    
+    console.log('\n' + chalk.white('Recommendation:'));
+    console.log(`${analysis.recommendation.toUpperCase()}`);
+    
+    console.log('\n' + chalk.white('Reasoning:'));
+    console.log(analysis.reasoning);
     
     console.log('\n' + chalk.gray('Note: This analysis is based on available data and AI interpretation. Always do your own research.'));
   }

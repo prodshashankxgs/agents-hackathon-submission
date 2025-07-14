@@ -1,12 +1,28 @@
+import { z } from 'zod';
+
 // Core trading types
-export interface TradeIntent {
-  action: 'buy' | 'sell';
-  symbol: string;
-  amountType: 'dollars' | 'shares';
-  amount: number;
-  orderType: 'market' | 'limit';
-  limitPrice?: number;
-}
+
+// Zod schema for TradeIntent, providing runtime validation
+export const TradeIntentSchema = z.object({
+  action: z.enum(['buy', 'sell']),
+  symbol: z.string().min(1, 'Symbol cannot be empty.').max(10, 'Symbol is too long.'),
+  amountType: z.enum(['dollars', 'shares']),
+  amount: z.number().positive('Amount must be a positive number.'),
+  orderType: z.enum(['market', 'limit']),
+  limitPrice: z.number().positive('Limit price must be a positive number.').optional(),
+}).refine(data => {
+  // Custom validation: if orderType is 'limit', limitPrice must be provided.
+  if (data.orderType === 'limit') {
+    return typeof data.limitPrice === 'number';
+  }
+  return true;
+}, {
+  message: 'Limit price is required for limit orders.',
+  path: ['limitPrice'],
+});
+
+// Infer the TypeScript type from the Zod schema
+export type TradeIntent = z.infer<typeof TradeIntentSchema>;
 
 export interface TradeValidation {
   isValid: boolean;
@@ -87,6 +103,7 @@ export interface AppConfig {
   alpacaSecretKey: string;
   alpacaBaseUrl: string;
   quiverApiKey: string;
+  perplexityApiKey: string;
   maxDailySpending: number;
   maxPositionSize: number;
   nodeEnv: string;

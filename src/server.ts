@@ -3,14 +3,15 @@ import cors from 'cors';
 import { WebSocket, WebSocketServer } from 'ws';
 import { config } from './config';
 import { OpenAIService } from './llm/openai-service';
-import { AdvancedTradingService } from './llm/advanced-trading-service';
+import { AdvancedTradingService } from './llm/trading';
 import { AlpacaAdapter } from './brokers/alpaca-adapter';
 import { ValidationService } from './trading/validation-service';
-import { ThirteenFService } from './services/thirteenth-f-service';
+import { ThirteenFService } from './services/13f-service';
 import { BasketStorageService } from './storage/basket-storage';
 import { TradeIntent, CLIOptions, TradingError } from './types';
 import { brokerLimiter } from './utils/concurrency-limiter';
 import { performanceMiddleware, performanceMonitor } from './utils/performance-monitor';
+import { optimizedParsingService } from './parsing/parsing-service';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -515,9 +516,12 @@ app.post('/api/command/parse', async (req, res) => {
 
     console.log('🎯 Parsing command:', command);
 
-            // Use existing OpenAI service to parse the command
-        const intent = await openaiService.parseTradeIntent(command);
-    console.log('✅ Parsed intent:', JSON.stringify(intent, null, 2));
+    // Use optimized parsing service with multi-tier strategy
+    const parseResult = await optimizedParsingService.parseTradeIntent(command);
+    const intent = parseResult.intent;
+    
+    console.log(`✅ Parsed via ${parseResult.method} in ${parseResult.processingTime}ms (confidence: ${parseResult.confidence.toFixed(3)})`);
+    console.log('📋 Parsed intent:', JSON.stringify(intent, null, 2));
     
     // Extract errors and warnings
     const errors: string[] = []
@@ -539,7 +543,13 @@ app.post('/api/command/parse', async (req, res) => {
       limitPrice: intent.limitPrice,
       isValid: errors.length === 0,
       errors: errors.length > 0 ? errors : undefined,
-      warnings: warnings.length > 0 ? warnings : undefined
+      warnings: warnings.length > 0 ? warnings : undefined,
+      // Add parsing metadata
+      parseMethod: parseResult.method,
+      parseTime: parseResult.processingTime,
+      parseConfidence: parseResult.confidence,
+      cacheHit: parseResult.cacheHit,
+      tokenUsage: parseResult.tokenUsage
     };
 
     console.log('📋 Parse result:', JSON.stringify(result, null, 2));
@@ -569,10 +579,11 @@ app.post('/api/command/execute', async (req, res) => {
 
     console.log('🎯 Executing command:', command);
 
-        // Parse the command using OpenAI
-        console.log('🤖 Parsing command with OpenAI...');
-        const intent = await openaiService.parseTradeIntent(command);
-        console.log('✅ Parsed intent:', JSON.stringify(intent, null, 2));
+        // Parse the command using optimized parsing service
+        console.log('🤖 Parsing command with optimized service...');
+        const parseResult = await optimizedParsingService.parseTradeIntent(command);
+        const intent = parseResult.intent;
+        console.log(`✅ Parsed via ${parseResult.method} in ${parseResult.processingTime}ms (confidence: ${parseResult.confidence.toFixed(3)})`);
         
         // Validate the trade
         console.log('🔍 Validating trade...');
@@ -634,6 +645,63 @@ app.post('/api/command/execute', async (req, res) => {
   }
 })
 
+// Parsing performance endpoints
+app.get('/api/parsing/stats', async (req, res) => {
+  try {
+    const stats = optimizedParsingService.getPerformanceStats();
+    return res.json(stats);
+  } catch (error: any) {
+    console.error('❌ Failed to get parsing stats:', error);
+    return res.status(500).json({
+      error: 'Failed to get parsing statistics',
+      details: error.message
+    });
+  }
+});
+
+app.post('/api/parsing/warm-cache', async (req, res) => {
+  try {
+    await optimizedParsingService.warmCaches();
+    return res.json({
+      success: true,
+      message: 'Cache warming completed'
+    });
+  } catch (error: any) {
+    console.error('❌ Failed to warm caches:', error);
+    return res.status(500).json({
+      error: 'Failed to warm caches',
+      details: error.message
+    });
+  }
+});
+
+app.post('/api/parsing/test-method', async (req, res) => {
+  try {
+    const { input, method } = req.body;
+    
+    if (!input || !method) {
+      return res.status(400).json({ 
+        error: 'Input and method are required' 
+      });
+    }
+
+    if (!['rule-based', 'semantic-cache', 'llm'].includes(method)) {
+      return res.status(400).json({ 
+        error: 'Invalid method. Must be: rule-based, semantic-cache, or llm' 
+      });
+    }
+
+    const result = await optimizedParsingService.parseWithMethod(input, method);
+    return res.json(result);
+  } catch (error: any) {
+    console.error('❌ Failed to test parsing method:', error);
+    return res.status(500).json({
+      error: 'Failed to test parsing method',
+      details: error.message
+    });
+  }
+});
+
 // Add a test endpoint after the existing endpoints
 app.get('/api/test/broker', async (req, res) => {
   try {
@@ -685,10 +753,19 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // Start HTTP server
-const server = app.listen(port, () => {
+const server = app.listen(port, async () => {
   console.log(`🚀 Trading API server running on port ${port}`);
   console.log(`📊 Mode: ${config.alpacaBaseUrl.includes('paper') ? 'PAPER TRADING' : 'LIVE TRADING'}`);
   console.log(`🌐 API available at: http://localhost:${port}/api`);
+  
+  // Warm parsing caches on startup
+  try {
+    console.log('🔥 Warming parsing caches...');
+    await optimizedParsingService.warmCaches();
+    console.log('✅ Cache warming completed');
+  } catch (error) {
+    console.warn('⚠️ Cache warming failed:', error);
+  }
 });
 
 // WebSocket server for real-time updates

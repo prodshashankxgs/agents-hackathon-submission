@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { config } from '../config';
-import { TradeIntent, LLMError } from '../types';
+import { z } from 'zod';
+import { TradeIntent, TradeIntentSchema, LLMError } from '../types';
 import { cacheService } from '../cache/cache-service';
 
 export class OpenAIService {
@@ -112,7 +113,7 @@ Always prioritize understanding the user's intent over strict pattern matching.`
         model: 'gpt-4o-mini',
         messages,
         tools,
-        tool_choice: 'auto',
+        tool_choice: { type: 'function', function: { name: 'execute_trade' } },
         temperature: 0.1,
         max_tokens: 500
       });
@@ -144,25 +145,31 @@ Always prioritize understanding the user's intent over strict pattern matching.`
       }
 
       const args = JSON.parse(toolCall.function.arguments);
-      
-      // Map the function arguments to TradeIntent
-      const tradeIntent: TradeIntent = {
+
+      // Zod validation provides runtime type safety
+      const tradeIntent = TradeIntentSchema.parse({
         action: args.action,
-        symbol: args.symbol.toUpperCase(),
+        symbol: args.symbol?.toUpperCase(),
         amountType: args.amount_type,
         amount: args.amount,
         orderType: args.order_type || 'market',
-        limitPrice: args.limit_price
-      };
-
-      // Validate the parsed intent
-      this.validateTradeIntent(tradeIntent);
+        limitPrice: args.limit_price,
+      });
 
       // Cache the parsed intent
       cacheService.setParsedIntent(inputHash, normalizedInput, tradeIntent);
 
       return tradeIntent;
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        // Provide detailed validation error messages
+        const errorMessage = `Invalid trade parameters: ${error.errors.map(e => e.message).join(', ')}`;
+        throw new LLMError(errorMessage, {
+          validationErrors: error.format(),
+          userInput
+        });
+      }
+
       if (error instanceof LLMError) {
         throw error;
       }
@@ -171,27 +178,6 @@ Always prioritize understanding the user's intent over strict pattern matching.`
         error: error instanceof Error ? error.message : 'Unknown error',
         userInput
       });
-    }
-  }
-
-  /**
-   * Validate the parsed trade intent
-   */
-  private validateTradeIntent(intent: TradeIntent): void {
-    if (!intent.symbol || intent.symbol.length === 0) {
-      throw new LLMError('Invalid stock symbol');
-    }
-
-    if (intent.amount <= 0) {
-      throw new LLMError('Trade amount must be greater than zero');
-    }
-
-    if (intent.orderType === 'limit' && !intent.limitPrice) {
-      throw new LLMError('Limit price is required for limit orders');
-    }
-
-    if (intent.limitPrice && intent.limitPrice <= 0) {
-      throw new LLMError('Limit price must be greater than zero');
     }
   }
 
