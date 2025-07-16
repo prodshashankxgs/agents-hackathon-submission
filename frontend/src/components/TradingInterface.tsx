@@ -13,8 +13,6 @@ import {
   ShieldIcon,
   BarChart3Icon,
   LightbulbIcon,
-  BrainCircuitIcon,
-  ShieldCheckIcon,
   RocketIcon,
   ZapIcon,
   ArrowUpIcon
@@ -72,7 +70,7 @@ export function TradingInterface() {
   const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>([])
   const [currentStep, setCurrentStep] = useState(-1)
   const [showProcessingContainer, setShowProcessingContainer] = useState(false)
-  const [requestType, setRequestType] = useState<'trade' | 'hedge' | 'analysis' | 'recommendation' | null>(null)
+  const [requestType, setRequestType] = useState<'trade' | 'hedge' | 'analysis' | 'recommendation' | '13f' | 'politicians' | null>(null)
   
   const inputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
@@ -114,6 +112,13 @@ export function TradingInterface() {
         { id: 'scan', label: 'Scanning market opportunities', status: 'pending' },
         { id: 'evaluate', label: 'Evaluating risk/reward', status: 'pending' },
         { id: 'recommend', label: 'Finalizing recommendations', status: 'pending' }
+      ]
+    } else if (type === 'politicians') {
+      steps = [
+        { id: 'parse', label: 'Analyzing politician request', status: 'pending' },
+        { id: 'fetch', label: 'Fetching congressional trades', status: 'pending' },
+        { id: 'calculate', label: 'Calculating portfolio allocation', status: 'pending' },
+        { id: 'present', label: 'Preparing investment options', status: 'pending' }
       ]
     }
     
@@ -556,12 +561,11 @@ export function TradingInterface() {
                       requestType === 'hedge' ? 'bg-blue-600' :
                       requestType === 'analysis' ? 'bg-purple-600' :
                       requestType === 'recommendation' ? 'bg-amber-600' :
-                      'bg-gray-600'
+                      requestType === '13f' ? 'bg-gray-900' :
+                      requestType === 'politicians' ? 'bg-gray-900' :
+                      'bg-gray-900'
                     }`}>
-                      {requestType === 'trade' && <RocketIcon className="w-3 sm:w-4 h-3 sm:h-4 text-white" />}
-                      {requestType === 'hedge' && <ShieldCheckIcon className="w-3 sm:w-4 h-3 sm:h-4 text-white" />}
-                      {requestType === 'analysis' && <BrainCircuitIcon className="w-3 sm:w-4 h-3 sm:h-4 text-white" />}
-                      {requestType === 'recommendation' && <LightbulbIcon className="w-3 sm:w-4 h-3 sm:h-4 text-white" />}
+                      <RocketIcon className="w-3 sm:w-4 h-3 sm:h-4 text-white" />
                     </div>
                   </div>
                   

@@ -72,7 +72,7 @@ export class PoliticianService {
       return_citations: true
     });
     
-    const profile = this.parseProfileResponse(response.choices[0].message.content, name);
+    const profile = this.parseProfileResponse(response.choices[0]?.message?.content || '', name);
     
     // Cache the result
     this.cache.set(cacheKey, {
@@ -114,7 +114,7 @@ export class PoliticianService {
       const holdingMatch = line.match(/([A-Z]{1,5}).*?(\$?[\d,]+)/);
       if (holdingMatch) {
         const symbol = holdingMatch[1];
-        const valueStr = holdingMatch[2].replace(/[$,]/g, '');
+        const valueStr = holdingMatch[2]?.replace(/[$,]/g, '') || '0';
         const value = parseFloat(valueStr);
         
         if (symbol && value > 0) {

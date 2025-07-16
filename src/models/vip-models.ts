@@ -373,7 +373,7 @@ export class VIPDataTransformer {
       name: entity.name,
       title: entity.title,
       firm: entity.firm,
-      firmCik: entity.firm_cik,
+      firmCik: entity.firm_cik ? entity.firm_cik : undefined,
       biography: entity.biography,
       investmentPhilosophy: entity.investment_philosophy,
       strategy: entity.strategy,
@@ -429,7 +429,7 @@ export class VIPDataTransformer {
       holdings: [], // Will be populated from separate table
       analytics: entity.analytics ? JSON.parse(entity.analytics) : undefined,
       metadata: {
-        dataSource: entity.data_source,
+        dataSource: entity.data_source as "perplexity",
         lastUpdated: entity.last_updated,
         cacheExpiry: entity.cache_expiry,
         processingTime: entity.processing_time

@@ -400,10 +400,13 @@ export class CacheManager {
       
       // Evict least used entries
       const evictCount = Math.ceil(entries.length * 0.2); // Evict 20%
-      for (let i = 0; i < evictCount; i++) {
-        const [key] = entries[i];
-        this.memoryCache.delete(key);
-        this.stats.evictions++;
+      for (let i = 0; i < evictCount && i < entries.length; i++) {
+        const entry = entries[i];
+        if (entry) {
+          const [key] = entry;
+          this.memoryCache.delete(key);
+          this.stats.evictions++;
+        }
       }
     }
   }

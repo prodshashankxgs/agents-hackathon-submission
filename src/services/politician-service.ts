@@ -143,7 +143,7 @@ export class PoliticianService {
         search_recency_filter: recency === 'week' ? 'week' : 'month'
       });
 
-      const profile = await this.parseProfileResponse(response.choices[0].message.content, name);
+      const profile = await this.parseProfileResponse(response.choices[0]?.message?.content || '', name);
 
       // Cache the result
       if (useCache) {
@@ -182,7 +182,7 @@ export class PoliticianService {
     } = {}
   ): Promise<PoliticianHolding[]> {
     const profile = await this.getPoliticianProfile(name, {
-      useCache: options.useCache,
+      useCache: options.useCache || false,
       includeAnalysis: false,
       includePerformance: false
     });
@@ -212,7 +212,7 @@ export class PoliticianService {
     const { limit = 20, timeframe = 'quarter', tradeType = 'all' } = options;
 
     const profile = await this.getPoliticianProfile(name, {
-      useCache: options.useCache,
+      useCache: options.useCache || false,
       includeAnalysis: false,
       includePerformance: false,
       recency: timeframe === 'week' ? 'week' : 'month'
@@ -301,7 +301,7 @@ export class PoliticianService {
       ]
     });
 
-    return this.parseSearchResults(response.choices[0].message.content);
+    return this.parseSearchResults(response.choices[0]?.message?.content || '');
   }
 
   /**
@@ -353,7 +353,7 @@ export class PoliticianService {
       ]
     });
 
-    return this.parseSearchResults(response.choices[0].message.content);
+    return this.parseSearchResults(response.choices[0]?.message?.content || '');
   }
 
   /**
@@ -488,7 +488,7 @@ export class PoliticianService {
 
   private extractField(content: string, regex: RegExp): string | null {
     const match = content.match(regex);
-    return match ? match[1].trim() : null;
+    return match ? match[1]?.trim() || null : null;
   }
 
   private extractHoldings(content: string): PoliticianHolding[] {
@@ -500,7 +500,7 @@ export class PoliticianService {
       const holdingMatch = line.match(/([A-Z]{1,5})\s*[:-]?\s*(.+?)\s*\$?([\d,]+(?:\.\d{2})?)/i);
       if (holdingMatch) {
         const [, symbol, companyName, valueStr] = holdingMatch;
-        const value = parseFloat(valueStr.replace(/,/g, ''));
+        const value = parseFloat(valueStr?.replace(/,/g, '') || '0');
 
         if (symbol && companyName && value > 0) {
           holdings.push({
@@ -525,13 +525,13 @@ export class PoliticianService {
       const tradeMatch = line.match(/(bought|sold|purchased)\s+([A-Z]{1,5})\s*.*?\$?([\d,]+(?:\.\d{2})?)/i);
       if (tradeMatch) {
         const [, action, symbol, amountStr] = tradeMatch;
-        const amount = parseFloat(amountStr.replace(/,/g, ''));
+        const amount = parseFloat(amountStr?.replace(/,/g, '') || '0');
 
         if (symbol && amount > 0) {
           trades.push({
             symbol: symbol.toUpperCase(),
             companyName: `${symbol} Corporation`,
-            tradeType: action.toLowerCase().includes('sold') ? 'sell' : 'buy',
+            tradeType: action?.toLowerCase().includes('sold') ? 'sell' : 'buy',
             amount,
             date: new Date().toISOString(),
             disclosed: true,
@@ -550,7 +550,7 @@ export class PoliticianService {
     const lines = content.split('\n').map(line => line.trim()).filter(line => line);
 
     for (const line of lines) {
-      if (line.match(/^\d+\.|^-|^*/) && line.length > 20) {
+      if (line.match(/^\d+\.|^-|^\*/) && line.length > 20) {
         // Extract politician name
         const nameMatch = line.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/);
         if (nameMatch) {
@@ -558,17 +558,17 @@ export class PoliticianService {
 
           // Extract party
           const partyMatch = line.match(/\b(Republican|Democrat|Democratic|Independent|GOP)\b/i);
-          const party = partyMatch ? partyMatch[1].toLowerCase() : 'unknown';
+          const party = partyMatch ? partyMatch[1]?.toLowerCase() : 'unknown';
 
           // Extract office
           const officeMatch = line.match(/\b(House|Senate|Representative|Senator)\b/i);
-          const office = officeMatch ? officeMatch[1].toLowerCase() : 'unknown';
+          const office = officeMatch ? officeMatch[1]?.toLowerCase() : 'unknown';
 
           results.push({
-            name,
+            name: name || 'Unknown',
             title: `${office} Member`,
-            party,
-            office,
+            party: party || 'unknown',
+            office: office || 'unknown',
             recentActivity: Math.floor(Math.random() * 20) + 1,
             controversyScore: Math.floor(Math.random() * 100),
             relevanceScore: Math.floor(Math.random() * 100)

@@ -28,8 +28,8 @@ export interface InvestmentInsight {
   type: 'portfolio_change' | 'new_position' | 'strategy_shift' | 'performance_update';
   title: string;
   description: string;
-  relevantInvestor?: string;
-  relevantSymbol?: string;
+  relevantInvestor: string | undefined;
+  relevantSymbol: string | undefined;
   impact: 'high' | 'medium' | 'low';
   timestamp: string;
   confidence: number;
@@ -81,11 +81,11 @@ export class FinancialIntelligenceService {
   private unifiedService: UnifiedFinancialIntelligenceService;
 
   constructor(
-    perplexityClient: PerplexityClient,
-    vipProfileService: VIPProfileService,
-    thirteenFService: ThirteenFService,
-    cacheManager: CacheManager,
-    basketStorage: BasketStorageService,
+    private perplexityClient: PerplexityClient,
+    private vipProfileService: VIPProfileService,
+    private thirteenFService: ThirteenFService,
+    private cacheManager: CacheManager,
+    private basketStorage: BasketStorageService,
     private config: FinancialIntelligenceConfig = {}
   ) {
     this.unifiedService = new UnifiedFinancialIntelligenceService(
@@ -125,10 +125,10 @@ export class FinancialIntelligenceService {
       name: `Investor ${index + 1}`,
       firm: mover.companyName,
       title: 'Fund Manager',
+      prominence: mover.consensus.consensusScore,
       aum: mover.consensus.institutionalActivity.netFlow,
-      recentActivity: mover.consensus.institutionalActivity.participantCount,
-      relevanceScore: mover.consensus.consensusScore,
-      activityType: 'news' as const
+      recentNews: mover.consensus.institutionalActivity.participantCount,
+      lastFiling: `${new Date().toISOString().split('T')[0]}`
     }));
   }
 
@@ -192,9 +192,9 @@ export class FinancialIntelligenceService {
 
     // Use the unified service for comprehensive intelligence
     const unifiedIntelligence = await this.unifiedService.generateUnifiedIntelligence({
-      sectors: options.sectors,
-      timeframe: options.timeframe,
-      includeRiskAnalysis: options.includeInsights,
+      ...(options.sectors && { sectors: options.sectors }),
+      ...(options.timeframe && { timeframe: options.timeframe }),
+      ...(options.includeInsights !== undefined && { includeRiskAnalysis: options.includeInsights }),
       includeCrossReferencing: true,
       maxResults: 50
     });
@@ -222,18 +222,28 @@ export class FinancialIntelligenceService {
       })),
       insights: unifiedIntelligence.topMovers.flatMap(mover => 
         mover.crossReferencedInsights.map(insight => ({
-          type: insight.type,
+          type: insight.type === 'institutional_follow' ? 'portfolio_change' : 
+                insight.type === 'political_trade_correlation' ? 'new_position' :
+                insight.type === 'vip_sentiment_shift' ? 'strategy_shift' : 'performance_update',
           title: insight.title,
           description: insight.description,
-          relevantInvestor: insight.participants[0]?.name,
-          relevantSymbol: insight.affectedSymbols[0],
+          relevantInvestor: insight.participants[0]?.name || undefined,
+          relevantSymbol: insight.affectedSymbols[0] || undefined,
           impact: insight.impact,
           timestamp: insight.metadata.generatedAt,
           confidence: insight.metadata.confidence,
           sources: insight.metadata.sources
         }))
       ),
-      metadata: unifiedIntelligence.metadata
+      metadata: {
+        generatedAt: unifiedIntelligence.metadata.generatedAt,
+        dataFreshness: unifiedIntelligence.metadata.dataFreshness,
+        coverage: {
+          institutions: unifiedIntelligence.metadata.coverage.institutions,
+          holdings: unifiedIntelligence.metadata.coverage.totalHoldings,
+          vipProfiles: unifiedIntelligence.metadata.coverage.vipProfiles
+        }
+      }
     };
   }
 
@@ -305,7 +315,7 @@ export class FinancialIntelligenceService {
     });
 
     const results = await Promise.all(portfolioPromises);
-    const successfulResults = results.filter(Boolean);
+    const successfulResults = results.filter((result): result is { institution: string; portfolio: ThirteenFPortfolio } => result !== null);
 
     await this.cacheManager.warmUp({
       portfolios: successfulResults

@@ -135,7 +135,7 @@ export class VIPProfileService {
         recency
       });
       
-      const profile = await this.parseProfileResponse(response.choices[0].message.content, name);
+      const profile = await this.parseProfileResponse(response.choices[0]?.message?.content || '', name);
       
       // Cache the result
       if (useCache) {
@@ -204,7 +204,7 @@ export class VIPProfileService {
       search_domain_filter: ['sec.gov', 'bloomberg.com', 'reuters.com', 'wsj.com']
     });
     
-    return this.parseSearchResults(response.choices[0].message.content);
+    return this.parseSearchResults(response.choices[0]?.message?.content || '');
   }
   
   /**
@@ -247,7 +247,7 @@ export class VIPProfileService {
       search_recency_filter: timeframe === 'week' ? 'week' : 'month'
     });
     
-    return this.parseSearchResults(response.choices[0].message.content);
+    return this.parseSearchResults(response.choices[0]?.message?.content || '');
   }
   
   /**
@@ -297,7 +297,7 @@ export class VIPProfileService {
         
         // Start new section
         const [section, ...contentParts] = line.split(':');
-        currentSection = section.toLowerCase();
+        currentSection = section?.toLowerCase() || '';
         currentContent = contentParts.join(':').trim();
       } else {
         currentContent += ' ' + line;
@@ -355,10 +355,10 @@ export class VIPProfileService {
     // Extract AUM
     const aumMatch = content.match(/(?:AUM|assets under management|manages?.*?)\$?(\d+(?:\.\d+)?)\s*(billion|million|B|M)/i);
     if (aumMatch) {
-      let aum = parseFloat(aumMatch[1]);
-      if (aumMatch[2].toLowerCase().includes('b')) {
+      let aum = parseFloat(aumMatch[1] || '0');
+      if (aumMatch[2]?.toLowerCase().includes('b')) {
         aum *= 1000000000;
-      } else if (aumMatch[2].toLowerCase().includes('m')) {
+      } else if (aumMatch[2]?.toLowerCase().includes('m')) {
         aum *= 1000000;
       }
       profile.aum = aum;
@@ -367,13 +367,13 @@ export class VIPProfileService {
     // Extract founded date
     const foundedMatch = content.match(/founded.*?(\d{4})/i);
     if (foundedMatch) {
-      profile.founded = foundedMatch[1];
+      profile.founded = foundedMatch[1] ? foundedMatch[1] : undefined;
     }
     
     // Extract headquarters
     const hqMatch = content.match(/(?:headquarters|based in|located in)\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i);
     if (hqMatch) {
-      profile.headquarters = hqMatch[1];
+      profile.headquarters = hqMatch[1] ? hqMatch[1] : undefined;
     }
   }
   
@@ -400,17 +400,17 @@ export class VIPProfileService {
     // Extract performance metrics using regex
     const returnMatch = content.match(/(?:return|performance).*?(\d+(?:\.\d+)?)%/i);
     if (returnMatch) {
-      profile.performance.annualizedReturn = parseFloat(returnMatch[1]);
+      profile.performance.annualizedReturn = parseFloat(returnMatch[1] || '0');
     }
     
     const sharpeMatch = content.match(/sharpe.*?(\d+(?:\.\d+)?)/i);
     if (sharpeMatch) {
-      profile.performance.sharpeRatio = parseFloat(sharpeMatch[1]);
+      profile.performance.sharpeRatio = parseFloat(sharpeMatch[1] || '0');
     }
     
     const volatilityMatch = content.match(/volatility.*?(\d+(?:\.\d+)?)%/i);
     if (volatilityMatch) {
-      profile.performance.volatility = parseFloat(volatilityMatch[1]);
+      profile.performance.volatility = parseFloat(volatilityMatch[1] || '0');
     }
   }
   
@@ -422,8 +422,8 @@ export class VIPProfileService {
       const symbolMatch = holding.match(/([A-Z]{1,5})/);
       if (symbolMatch) {
         profile.notableHoldings.push({
-          symbol: symbolMatch[1],
-          companyName: holding.replace(symbolMatch[1], '').trim(),
+          symbol: symbolMatch[1] || 'UNKNOWN',
+          companyName: holding.replace(symbolMatch[1] || '', '').trim(),
           position: 'notable holding'
         });
       }
@@ -450,8 +450,8 @@ export class VIPProfileService {
         
         profile.recentMoves.push({
           type,
-          symbol: symbolMatch[1],
-          companyName: move.replace(symbolMatch[1], '').trim(),
+          symbol: symbolMatch[1] || 'UNKNOWN',
+          companyName: move.replace(symbolMatch[1] || '', '').trim(),
           description: move
         });
       }
@@ -467,7 +467,7 @@ export class VIPProfileService {
         profile.recentNews.push({
           headline: item,
           source: 'Various',
-          date: new Date().toISOString().split('T')[0],
+          date: new Date().toISOString().split('T')[0] || 'Unknown',
           summary: item.substring(0, 200) + (item.length > 200 ? '...' : '')
         });
       }
@@ -485,9 +485,9 @@ export class VIPProfileService {
         
         if (nameMatch) {
           const result: VIPSearchResult = {
-            name: nameMatch[1],
+            name: nameMatch[1] || 'Unknown',
             title: 'Investment Professional',
-            firm: firmMatch ? firmMatch[1] : 'Unknown',
+            firm: firmMatch ? firmMatch[1] || 'Unknown' : 'Unknown',
             prominence: Math.floor(Math.random() * 40) + 60, // 60-100
             recentNews: Math.floor(Math.random() * 10) + 1
           };
@@ -495,10 +495,10 @@ export class VIPProfileService {
           // Extract AUM if mentioned
           const aumMatch = line.match(/\$(\d+(?:\.\d+)?)\s*(billion|million|B|M)/i);
           if (aumMatch) {
-            let aum = parseFloat(aumMatch[1]);
-            if (aumMatch[2].toLowerCase().includes('b')) {
+            let aum = parseFloat(aumMatch[1] || '0');
+            if (aumMatch[2]?.toLowerCase().includes('b')) {
               aum *= 1000000000;
-            } else if (aumMatch[2].toLowerCase().includes('m')) {
+            } else if (aumMatch[2]?.toLowerCase().includes('m')) {
               aum *= 1000000;
             }
             result.aum = aum;

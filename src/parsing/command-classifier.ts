@@ -328,8 +328,6 @@ export class CommandClassifier {
       simpleMatches,
       complexMatches,
       extractedTickers: this.extractTickers(input),
-      extractedPoliticians: this.extractPoliticians(input),
-      isPoliticianQuery: this.isPoliticianQuery(input),
       estimatedCost: this.estimateCost(input)
     };
   }

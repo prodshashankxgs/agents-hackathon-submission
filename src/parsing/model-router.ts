@@ -101,7 +101,7 @@ export class ModelRouter {
     const estimatedCost = this.calculateCost(selectedModel, inputTokens);
     
     // Update usage stats
-    this.updateUsageStats(selectModel.name, estimatedCost)
+    this.updateUsageStats(selectedModel.name, estimatedCost)
 
     // Return model information and complexity (track and consider integrating into API pricing into future)
     return {

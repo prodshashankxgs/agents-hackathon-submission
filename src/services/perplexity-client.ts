@@ -257,6 +257,9 @@ export class PerplexityClient {
     attempt = 0
   ): Promise<PerplexityResponse> {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+      
       const response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -265,8 +268,10 @@ export class PerplexityClient {
           'User-Agent': 'NLP-Trading-App/1.0'
         },
         body: JSON.stringify(payload),
-        timeout: this.timeout
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
