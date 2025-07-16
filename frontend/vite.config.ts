@@ -45,10 +45,7 @@ export default defineConfig({
             './src/components/PositionsList.tsx'
           ],
           
-          // Market components chunk
-          'market-components': [
-            './src/components/MarketStatus.tsx'
-          ]
+
         }
       }
     },

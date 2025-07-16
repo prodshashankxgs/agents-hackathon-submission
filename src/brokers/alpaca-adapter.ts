@@ -314,9 +314,8 @@ export class AlpacaAdapter implements BrokerAdapter {
               throw new Error('No price data available');
             }
           } catch (barError) {
-            // Final fallback - use a placeholder price
-            console.warn(`Could not fetch any price data for ${symbol}, using placeholder`);
-            currentPrice = 100; // Placeholder price
+                  // No price data available - throw error
+      throw new Error(`Unable to fetch price data for ${symbol} from any source`);
             volume = 0;
           }
         }
@@ -365,7 +364,7 @@ export class AlpacaAdapter implements BrokerAdapter {
       cacheService.setMarketData(symbol, marketData, ttl);
       return marketData;
     } catch (error) {
-      // Don't throw errors for market data - return cached data or placeholder
+      // Don't throw errors for market data - return cached data if available
       console.warn(`Market data error for ${symbol}:`, error);
       
       // Try to return cached data (even if we couldn't get fresh data)
@@ -375,16 +374,8 @@ export class AlpacaAdapter implements BrokerAdapter {
         return cached;
       }
       
-      // Final fallback - return placeholder data
-      console.log(`Using placeholder market data for ${symbol}`);
-      return {
-        symbol,
-        currentPrice: 100, // Placeholder
-        previousClose: 100,
-        changePercent: 0,
-        volume: 0,
-        isMarketOpen: false
-      };
+      // No data available - throw descriptive error
+      throw new Error(`Unable to fetch market data for ${symbol} - all data sources failed`);
     }
   }
 

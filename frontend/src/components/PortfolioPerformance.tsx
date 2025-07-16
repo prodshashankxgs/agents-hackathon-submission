@@ -141,9 +141,6 @@ export function PortfolioPerformance({ accountInfo }: PortfolioPerformanceProps)
       const data: PortfolioHistoryPoint[] = []
       const minLength = Math.min(timestamp.length, equity.length, profit_loss_pct.length)
       
-      // For S&P 500 comparison, we'll simulate it for now
-      const startSP500 = 4500
-      
       for (let i = 0; i < minLength; i++) {
         try {
           // Validate timestamp
@@ -172,19 +169,15 @@ export function PortfolioPerformance({ accountInfo }: PortfolioPerformanceProps)
           // Calculate portfolio return percentage
           const portfolioReturn = (profit_loss_pct[i] || 0) * 100
           
-          // Simulate S&P 500 data (in production, use real data)
-          const sp500Return = portfolioReturn * 0.7 + (Math.random() - 0.5) * 2
-          const sp500Value = startSP500 * (1 + sp500Return / 100)
-          
           // Calculate day P&L
           const dayPnL = i > 0 ? equityValue - equity[i - 1] : 0
           
           data.push({
             date: dateString,
             portfolioValue: equityValue,
-            sp500Value,
+            sp500Value: 0, // S&P 500 comparison requires market data API
             portfolioReturn,
-            sp500Return,
+            sp500Return: 0, // S&P 500 comparison requires market data API
             dayPnL
           })
         } catch (error) {

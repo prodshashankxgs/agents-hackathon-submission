@@ -102,7 +102,7 @@ export interface AppConfig {
   alpacaApiKey: string;
   alpacaSecretKey: string;
   alpacaBaseUrl: string;
-  quiverApiKey: string;
+
   perplexityApiKey: string;
   maxDailySpending: number;
   maxPositionSize: number;

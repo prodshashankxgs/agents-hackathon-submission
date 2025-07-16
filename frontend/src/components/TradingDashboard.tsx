@@ -1,7 +1,6 @@
 import { useState, lazy, Suspense } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { 
-  ActivityIcon,
   CreditCardIcon,
   DollarSignIcon, 
   PieChartIcon,
@@ -17,7 +16,7 @@ import { apiService } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import { TradingInterface } from './TradingInterface'
 import { PortfolioOverview } from './PortfolioOverview'
-import { MarketStatus } from './MarketStatus'
+
 import { PortfolioBaskets } from './PortfolioBaskets'
 
 // Lazy load the PortfolioPerformance component since it includes heavy charting libraries
@@ -28,7 +27,7 @@ interface TradingDashboardProps {
 }
 
 export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
-  const [selectedTab, setSelectedTab] = useState<'trade' | 'portfolio' | 'performance' | 'baskets' | 'market'>('trade')
+  const [selectedTab, setSelectedTab] = useState<'trade' | 'portfolio' | 'performance' | 'baskets'>('trade')
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   // Fetch account information
@@ -59,7 +58,6 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
     { id: 'portfolio', label: 'Portfolio', icon: PieChartIcon },
     { id: 'performance', label: 'Performance', icon: LineChartIcon },
     { id: 'baskets', label: 'Baskets', icon: CreditCardIcon },
-    { id: 'market', label: 'Market', icon: ActivityIcon },
   ] as const
 
   return (
@@ -183,7 +181,9 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
                   ? 'bg-green-50 text-green-700 border border-green-200' 
                   : 'bg-gray-50 text-gray-600 border border-gray-200'
               }`}>
-                <ActivityIcon className="w-3 sm:w-3.5 h-3 sm:h-3.5 mr-1 sm:mr-1.5" />
+                <div className={`w-2 h-2 rounded-full mr-1 sm:mr-1.5 ${
+                  marketStatus.isOpen ? 'bg-green-500' : 'bg-gray-400'
+                }`}></div>
                 Market {marketStatus.isOpen ? 'Open' : 'Closed'}
               </div>
             )}
@@ -216,7 +216,6 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
                   {selectedTab === 'portfolio' && 'Monitor your investment performance'}
                   {selectedTab === 'performance' && 'Analyze returns and benchmarks'}
                   {selectedTab === 'baskets' && 'Explore institutional portfolios'}
-                  {selectedTab === 'market' && 'Real-time market intelligence'}
                 </p>
               </div>
             </div>
@@ -271,11 +270,6 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
               {selectedTab === 'baskets' && (
                 <div className="slide-in-bottom">
                   <PortfolioBaskets />
-                </div>
-              )}
-              {selectedTab === 'market' && (
-                <div className="slide-in-bottom">
-                  <MarketStatus />
                 </div>
               )}
             </div>

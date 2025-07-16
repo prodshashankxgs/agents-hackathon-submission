@@ -4,7 +4,8 @@
   "description": "A natural language trading application with web interface and CLI",
   "main": "dist/index.js",
   "bin": {
-    "nltrade": "dist/index.js"
+    "nltrade": "dist/index.js",
+    "nltrade-enhanced": "dist/cli/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -35,6 +36,7 @@
     "@types/node-fetch": "^2.6.12",
     "axios": "^1.0.0",
     "chalk": "^5.0.0",
+    "cli-table3": "^0.6.5",
     "commander": "^11.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.0.0",

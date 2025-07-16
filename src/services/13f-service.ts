@@ -54,7 +54,7 @@ export interface ThirteenFPortfolio {
     };
   };
   metadata?: {
-    dataSource: 'quiver' | 'mock';
+    dataSource: 'perplexity';
     lastUpdated: string;
     cacheExpiry: string;
     processingTime: number;
@@ -67,18 +67,7 @@ interface CacheEntry {
   expiry: number;
 }
 
-interface QuiverApiResponse {
-  data: Array<{
-    symbol: string;
-    companyName: string;
-    value: string;
-    shares: string;
-    [key: string]: any;
-  }>;
-  filingDate: string;
-  totalValue: number;
-  [key: string]: any;
-}
+
 
 interface SectorMapping {
   [symbol: string]: {
@@ -132,18 +121,12 @@ export class ThirteenFService {
       // Rate limiting
       await this.enforceRateLimit();
 
-      let portfolio: ThirteenFPortfolio;
-      
-      if (config.perplexityApiKey) {
-        console.log(`🔍 Fetching real 13F data for ${institution} from Perplexity AI`);
-        portfolio = await this.fetchFromPerplexity(institution, maxHoldings);
-      } else if (config.quiverApiKey) {
-        console.log(`🔍 Fetching real 13F data for ${institution} from QuiverQuant`);
-        portfolio = await this.fetchFromQuiverQuant(institution, maxHoldings);
-      } else {
-        console.log(`🎭 Using mock 13F data for ${institution} (no API key)`);
-        portfolio = await this.generateMockPortfolio(institution, maxHoldings);
+      if (!config.perplexityApiKey) {
+        throw new Error(`⚠️ 13F data service unavailable - missing Perplexity API key. Please configure PERPLEXITY_API_KEY environment variable.`);
       }
+
+      console.log(`🔍 Fetching 13F data for ${institution} from Perplexity AI`);
+      const portfolio = await this.fetchFromPerplexity(institution, maxHoldings);
 
       // Add analytics if requested
       if (includeAnalytics) {
@@ -155,7 +138,7 @@ export class ThirteenFService {
 
       // Add metadata
       portfolio.metadata = {
-        dataSource: config.quiverApiKey ? 'quiver' : 'mock',
+        dataSource: 'perplexity',
         lastUpdated: new Date().toISOString(),
         cacheExpiry: new Date(Date.now() + this.CACHE_DURATION).toISOString(),
         processingTime: Date.now() - startTime
@@ -182,9 +165,8 @@ export class ThirteenFService {
         return cached.data;
       }
 
-      // Final fallback to mock data
-      console.log(`🎭 Falling back to mock data for ${institution}`);
-      return this.generateMockPortfolio(institution, maxHoldings);
+      // No fallback available - rethrow the error
+      throw error;
     }
   }
 
@@ -239,32 +221,7 @@ Please format the response as structured data that can be parsed. Focus on accur
     return this.processPerplexityData(data, institution, maxHoldings);
   }
 
-  /**
-   * Fetch real data from QuiverQuant API
-   */
-  private async fetchFromQuiverQuant(institution: string, maxHoldings: number): Promise<ThirteenFPortfolio> {
-    const url = `https://api.quiverquant.com/beta/bulk/13f/${encodeURIComponent(institution)}`;
-    
-    const response = await this.fetchWithRetry(url, {
-      headers: {
-        'Authorization': `Bearer ${config.quiverApiKey}`,
-        'Content-Type': 'application/json',
-        'User-Agent': 'NaturalLanguageTradingApp/1.0'
-      },
-      timeout: this.REQUEST_TIMEOUT
-    });
 
-    if (!response.ok) {
-      throw new TradingError(
-        `QuiverQuant API error: ${response.status} ${response.statusText}`,
-        'QUIVER_API_ERROR',
-        { status: response.status, institution }
-      );
-    }
-
-    const data: QuiverApiResponse = await response.json();
-    return this.processQuiverData(data, institution, maxHoldings);
-  }
 
   /**
    * Process Perplexity AI response into our format
@@ -299,7 +256,7 @@ Please format the response as structured data that can be parsed. Focus on accur
         documentCount: holdings.length,
         amendmentFlag: false,
         metadata: {
-          dataSource: 'perplexity' as 'quiver' | 'mock',
+          dataSource: 'perplexity',
           lastUpdated: new Date().toISOString(),
           cacheExpiry: new Date(Date.now() + this.CACHE_DURATION).toISOString(),
           processingTime: 0
@@ -375,7 +332,7 @@ Please format the response as structured data that can be parsed. Focus on accur
       }
     }
     
-    // If we couldn't parse enough holdings, generate some mock data based on the institution
+            // If we couldn't parse enough holdings, inform user of incomplete data
     if (holdings.length === 0) {
       console.warn(`Could not parse holdings from Perplexity response for ${currentHolding.symbol || 'unknown'}. Generating fallback data.`);
       return this.generateFallbackHoldings(maxHoldings);
@@ -430,64 +387,7 @@ Please format the response as structured data that can be parsed. Focus on accur
     return holdings;
   }
 
-  /**
-   * Process QuiverQuant API response into our format
-   */
-  private async processQuiverData(data: QuiverApiResponse, institution: string, maxHoldings: number): Promise<ThirteenFPortfolio> {
-    if (!data.data || !Array.isArray(data.data)) {
-      throw new TradingError('Invalid QuiverQuant API response format', 'INVALID_API_RESPONSE');
-    }
 
-    const totalValue = data.totalValue || data.data.reduce((sum, item) => sum + parseFloat(item.value || '0'), 0);
-    
-    // Process holdings with enhanced data
-    const holdings: ThirteenFHolding[] = await Promise.all(
-      data.data
-        .filter(item => item.symbol && item.value && parseFloat(item.value) > 0)
-        .slice(0, maxHoldings)
-        .map(async (item): Promise<ThirteenFHolding> => {
-          const marketValue = parseFloat(item.value || '0');
-          const shares = parseInt(item.shares || '0');
-          
-          // Get sector information
-          const sectorInfo = await this.getSectorInfo(item.symbol);
-          
-          const holding: ThirteenFHolding = {
-            symbol: item.symbol,
-            companyName: item.companyName || item.symbol,
-            shares,
-            marketValue,
-            percentOfPortfolio: totalValue > 0 ? (marketValue / totalValue) * 100 : 0,
-            pricePerShare: shares > 0 ? marketValue / shares : 0
-          };
-
-          // Add optional fields only if they exist
-          if (item.cusip) holding.cusip = item.cusip;
-          if (sectorInfo?.sector) holding.sector = sectorInfo.sector;
-          if (sectorInfo?.industry) holding.industry = sectorInfo.industry;
-          if (sectorInfo?.marketCap) holding.marketCap = sectorInfo.marketCap;
-          if (item.changeFromPrevious) holding.changeFromPrevious = parseFloat(item.changeFromPrevious);
-          if (item.changePercent) holding.changePercent = parseFloat(item.changePercent);
-
-          return holding;
-        })
-    );
-
-    // Sort by portfolio percentage
-    holdings.sort((a: ThirteenFHolding, b: ThirteenFHolding) => b.percentOfPortfolio - a.percentOfPortfolio);
-
-    return {
-      institution,
-      cik: data.cik || '',
-      filingDate: data.filingDate || new Date().toISOString(),
-      totalValue,
-      holdings,
-      quarterEndDate: data.quarterEndDate || data.filingDate || new Date().toISOString(),
-      formType: data.formType || '13F-HR',
-      documentCount: holdings.length,
-      amendmentFlag: data.amendmentFlag || false
-    };
-  }
 
   /**
    * Get sector information for a symbol (with caching)
@@ -581,42 +481,7 @@ Please format the response as structured data that can be parsed. Focus on accur
     };
   }
 
-  /**
-   * Generate mock portfolio data for development/fallback
-   */
-  private async generateMockPortfolio(institution: string, maxHoldings: number): Promise<ThirteenFPortfolio> {
-    const mockHoldings: ThirteenFHolding[] = [
-      { symbol: 'AAPL', companyName: 'Apple Inc.', shares: 1000000, marketValue: 150000000, percentOfPortfolio: 15.0, sector: 'Technology', industry: 'Consumer Electronics' },
-      { symbol: 'MSFT', companyName: 'Microsoft Corporation', shares: 800000, marketValue: 120000000, percentOfPortfolio: 12.0, sector: 'Technology', industry: 'Software' },
-      { symbol: 'GOOGL', companyName: 'Alphabet Inc.', shares: 400000, marketValue: 100000000, percentOfPortfolio: 10.0, sector: 'Technology', industry: 'Internet Services' },
-      { symbol: 'AMZN', companyName: 'Amazon.com Inc.', shares: 300000, marketValue: 80000000, percentOfPortfolio: 8.0, sector: 'Consumer Discretionary', industry: 'E-commerce' },
-      { symbol: 'TSLA', companyName: 'Tesla Inc.', shares: 250000, marketValue: 70000000, percentOfPortfolio: 7.0, sector: 'Consumer Discretionary', industry: 'Electric Vehicles' },
-      { symbol: 'NVDA', companyName: 'NVIDIA Corporation', shares: 200000, marketValue: 60000000, percentOfPortfolio: 6.0, sector: 'Technology', industry: 'Semiconductors' },
-      { symbol: 'META', companyName: 'Meta Platforms Inc.', shares: 180000, marketValue: 50000000, percentOfPortfolio: 5.0, sector: 'Technology', industry: 'Social Media' },
-      { symbol: 'BRK.B', companyName: 'Berkshire Hathaway Inc.', shares: 150000, marketValue: 45000000, percentOfPortfolio: 4.5, sector: 'Financial Services', industry: 'Conglomerates' },
-      { symbol: 'JNJ', companyName: 'Johnson & Johnson', shares: 120000, marketValue: 40000000, percentOfPortfolio: 4.0, sector: 'Healthcare', industry: 'Pharmaceuticals' },
-      { symbol: 'V', companyName: 'Visa Inc.', shares: 100000, marketValue: 35000000, percentOfPortfolio: 3.5, sector: 'Financial Services', industry: 'Payment Processing' }
-    ].slice(0, maxHoldings);
 
-    const totalValue = mockHoldings.reduce((sum, h) => sum + h.marketValue, 0);
-
-    // Add price per share
-    mockHoldings.forEach(holding => {
-      holding.pricePerShare = holding.marketValue / holding.shares;
-    });
-
-    return {
-      institution,
-      cik: 'MOCK-CIK',
-      filingDate: new Date().toISOString(),
-      totalValue,
-      holdings: mockHoldings,
-      quarterEndDate: new Date().toISOString(),
-      formType: '13F-HR',
-      documentCount: mockHoldings.length,
-      amendmentFlag: false
-    };
-  }
 
   /**
    * Enforce rate limiting between API requests

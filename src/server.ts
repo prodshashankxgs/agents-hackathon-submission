@@ -33,12 +33,12 @@ const thirteenFService = new ThirteenFService(basketStorage);
 if (config.nodeEnv === 'development') {
   console.log('\n🔧 Running in DEVELOPMENT mode');
   
-  if (config.openaiApiKey === 'development-mock-key') {
-    console.warn('⚠️  Using mock OpenAI API key - AI features will not work');
+    if (!config.openaiApiKey) {
+    console.warn('⚠️  No OpenAI API key configured - AI features will not work');
   }
-  
-  if (config.alpacaApiKey === 'development-mock-key') {
-    console.warn('⚠️  Using mock Alpaca API key - Trading features will not work');
+
+  if (!config.alpacaApiKey) {
+    console.warn('⚠️  No Alpaca API key configured - Trading features will not work');
   }
   
   console.log('\n💡 To enable full functionality, add your API keys to the .env file\n');

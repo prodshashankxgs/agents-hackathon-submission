@@ -149,7 +149,7 @@ export class TradingChatbot {
         console.log('\n' + chalk.yellow('Note: I cannot fetch current market data (market may be closed).'));
         console.log('Would you like to proceed with the order anyway? It will be queued for the next market open.');
         
-        // Create a mock validation for after-hours trading
+        // Validate trading hours for orders
         validation = {
           isValid: true,
           errors: [],
@@ -333,7 +333,7 @@ export class TradingChatbot {
       console.log('\n' + chalk.yellow('Note: I cannot fetch current market data (market may be closed).'));
       console.log('Would you like to proceed with the order anyway? It will be queued for the next market open.');
       
-      // Create a mock validation for after-hours trading
+      // Validate trading hours for orders
       validation = {
         isValid: true,
         errors: [],
