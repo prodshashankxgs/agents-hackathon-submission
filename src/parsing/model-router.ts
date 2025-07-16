@@ -101,8 +101,9 @@ export class ModelRouter {
     const estimatedCost = this.calculateCost(selectedModel, inputTokens);
     
     // Update usage stats
-    this.updateUsageStats(selectedModel.name, estimatedCost);
-    
+    this.updateUsageStats(selectModel.name, estimatedCost)
+
+    // Return model information and complexity (track and consider integrating into API pricing into future)
     return {
       name: selectedModel.name,
       complexity: selectedModel.complexity,
@@ -122,10 +123,10 @@ export class ModelRouter {
     batchProcessing: string;
   } {
     return {
-      quickParsing: 'gpt-4o-mini', // Fast, cheap, good for simple commands
+      quickParsing: 'gpt-4o-mini', // Fast, cheap, good for simple commands // PRIORITIZE FOR COST EFFECTIVENESS
       accurateParsing: 'gpt-4o', // Balanced accuracy and speed
       complexAnalysis: 'gpt-4-turbo', // High accuracy for complex scenarios
-      batchProcessing: 'gpt-4o-mini' // Cost-effective for high volume
+      batchProcessing: 'gpt-4o-mini' // Cost-effective for high volume // PRIORITIZE FOR COST EFFECTIVENESS
     };
   }
 

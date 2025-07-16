@@ -35,6 +35,8 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
   const [selectedMetric, setSelectedMetric] = useState<number | null>(null)
   const { sortedPositions, sortConfig, handleSort } = usePositionSorting(accountInfo?.positions || [])
   const [selectedPositions, setSelectedPositions] = useState<string[]>([])
+  const [isTopHoldingsExpanded, setIsTopHoldingsExpanded] = useState(false)
+  const [isAllPositionsExpanded, setIsAllPositionsExpanded] = useState(false)
 
   if (!accountInfo) {
     return (
@@ -454,13 +456,22 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
           <div className="space-y-3 sm:space-y-4">
             <div className="flex items-center justify-between mb-3 sm:mb-4">
               <h4 className="text-xs sm:text-sm font-semibold text-gray-900 uppercase tracking-wider">Top Holdings</h4>
-              <button className="text-[10px] sm:text-xs text-gray-500 hover:text-gray-700 font-medium transition-colors">
-                View All
+              <button 
+                onClick={() => setIsTopHoldingsExpanded(!isTopHoldingsExpanded)}
+                className="flex items-center space-x-1 text-[10px] sm:text-xs text-gray-500 hover:text-gray-700 font-medium transition-colors"
+              >
+                <span>{isTopHoldingsExpanded ? 'Collapse' : 'Expand'}</span>
+                {isTopHoldingsExpanded ? (
+                  <ChevronUpIcon className="w-3 h-3" />
+                ) : (
+                  <ChevronDownIcon className="w-3 h-3" />
+                )}
               </button>
             </div>
             
+            {/* Show only top 3 positions when collapsed, all when expanded */}
             <div className="space-y-1.5 sm:space-y-2 max-h-80 sm:max-h-96 overflow-y-auto custom-scrollbar pr-1 sm:pr-2">
-              {positionBreakdown.slice(0, 10).map((position, index) => (
+              {positionBreakdown.slice(0, isTopHoldingsExpanded ? 10 : 3).map((position, index) => (
                 <div 
                   key={position.symbol} 
                   className="brokerage-card p-4 hover-lift position-row-enter"
@@ -505,7 +516,15 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
                 </div>
               ))}
 
-              {positionBreakdown.length > 10 && (
+              {!isTopHoldingsExpanded && positionBreakdown.length > 3 && (
+                <div className="text-center py-4">
+                  <p className="text-sm text-gray-500">
+                    +{positionBreakdown.length - 3} more positions
+                  </p>
+                </div>
+              )}
+              
+              {isTopHoldingsExpanded && positionBreakdown.length > 10 && (
                 <div className="text-center py-4">
                   <p className="text-sm text-gray-500">
                     +{positionBreakdown.length - 10} more positions
@@ -520,7 +539,20 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
       {/* Detailed Positions Table */}
       <div className="brokerage-card overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">All Positions</h3>
+          <div className="flex items-center space-x-3">
+            <h3 className="text-lg font-semibold text-gray-900">All Positions</h3>
+            <button 
+              onClick={() => setIsAllPositionsExpanded(!isAllPositionsExpanded)}
+              className="flex items-center space-x-1 text-sm text-gray-500 hover:text-gray-700 font-medium transition-colors"
+            >
+              <span>{isAllPositionsExpanded ? 'Collapse' : 'Expand'}</span>
+              {isAllPositionsExpanded ? (
+                <ChevronUpIcon className="w-4 h-4" />
+              ) : (
+                <ChevronDownIcon className="w-4 h-4" />
+              )}
+            </button>
+          </div>
           {selectedPositions.length > 0 && (
             <div className="flex items-center space-x-3">
               <span className="text-sm text-gray-500">{selectedPositions.length} selected</span>
@@ -531,8 +563,9 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
           )}
         </div>
         
-        <div className="overflow-x-auto">
-          <table className="brokerage-table w-full">
+        {isAllPositionsExpanded && (
+          <div className="overflow-x-auto">
+            <table className="brokerage-table w-full">
             <thead className="bg-gray-50/50">
               <tr>
                 <th className="w-12 px-6 py-4">
@@ -747,8 +780,37 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
                 )
               })}
             </tbody>
-          </table>
-        </div>
+            </table>
+          </div>
+        )}
+        
+        {!isAllPositionsExpanded && (
+          <div className="px-6 py-8 text-center">
+            <div className="space-y-3">
+              <div className="w-12 h-12 mx-auto bg-gray-100 rounded-xl flex items-center justify-center">
+                <BarChart3Icon className="w-6 h-6 text-gray-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-900 mb-1">
+                  {accountInfo.positions.length} positions available
+                </p>
+                <p className="text-xs text-gray-500">
+                  Click "Expand" to view detailed position information
+                </p>
+              </div>
+              <div className="flex items-center justify-center space-x-4 text-xs text-gray-500">
+                <div className="flex items-center space-x-1">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span>{accountInfo.positions.filter(p => p.unrealizedPnL > 0).length} winners</span>
+                </div>
+                <div className="flex items-center space-x-1">
+                  <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                  <span>{accountInfo.positions.filter(p => p.unrealizedPnL < 0).length} losers</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Modern Quick Stats */}

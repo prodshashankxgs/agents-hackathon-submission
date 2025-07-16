@@ -1,6 +1,7 @@
-import fetch from 'node-fetch';
 import { TradingError } from '../types';
 import { BasketStorageService } from '../storage/basket-storage';
+import { PerplexityClient } from './perplexity-client';
+import { CacheManager } from './cache-manager';
 import { config } from '../config';
 
 export interface ThirteenFHolding {
@@ -61,14 +62,6 @@ export interface ThirteenFPortfolio {
   };
 }
 
-interface CacheEntry {
-  data: ThirteenFPortfolio;
-  timestamp: number;
-  expiry: number;
-}
-
-
-
 interface SectorMapping {
   [symbol: string]: {
     sector: string;
@@ -78,17 +71,14 @@ interface SectorMapping {
 }
 
 export class ThirteenFService {
-  private cache = new Map<string, CacheEntry>();
   private readonly CACHE_DURATION = 1000 * 60 * 60 * 4; // 4 hours
-  private readonly REQUEST_TIMEOUT = 30000; // 30 seconds
-  private readonly MAX_RETRIES = 3;
-  private readonly RATE_LIMIT_DELAY = 1000; // 1 second between requests
-  private lastRequestTime = 0;
-  
-  // Sector mapping cache for better performance
   private sectorCache = new Map<string, SectorMapping[string]>();
   
-  constructor(private basketStorage: BasketStorageService) {}
+  constructor(
+    private basketStorage: BasketStorageService,
+    private perplexityClient: PerplexityClient,
+    private cacheManager: CacheManager
+  ) {}
 
   /**
    * Get 13F portfolio data with caching and error handling
@@ -109,17 +99,13 @@ export class ThirteenFService {
 
     try {
       // Check cache first
-      if (useCache && this.cache.has(cacheKey)) {
-        const cached = this.cache.get(cacheKey)!;
-        if (Date.now() < cached.expiry) {
+      if (useCache) {
+        const cached = await this.cacheManager.get13FPortfolio(institution);
+        if (cached) {
           console.log(`📋 Using cached 13F data for ${institution}`);
-          return cached.data;
+          return cached;
         }
-        this.cache.delete(cacheKey);
       }
-
-      // Rate limiting
-      await this.enforceRateLimit();
 
       if (!config.perplexityApiKey) {
         throw new Error(`⚠️ 13F data service unavailable - missing Perplexity API key. Please configure PERPLEXITY_API_KEY environment variable.`);
@@ -146,11 +132,7 @@ export class ThirteenFService {
 
       // Cache the result
       if (useCache) {
-        this.cache.set(cacheKey, {
-          data: portfolio,
-          timestamp: Date.now(),
-          expiry: Date.now() + this.CACHE_DURATION
-        });
+        await this.cacheManager.set13FPortfolio(institution, portfolio, this.CACHE_DURATION);
       }
 
       return portfolio;
@@ -158,11 +140,11 @@ export class ThirteenFService {
     } catch (error) {
       console.error(`❌ Error fetching 13F data for ${institution}:`, error);
       
-      // Fallback to cached data if available, even if expired
-      if (this.cache.has(cacheKey)) {
-        const cached = this.cache.get(cacheKey)!;
-        console.log(`🔄 Using expired cache as fallback for ${institution}`);
-        return cached.data;
+      // Try to get any cached data as fallback
+      const cached = await this.cacheManager.get13FPortfolio(institution);
+      if (cached) {
+        console.log(`🔄 Using cached data as fallback for ${institution}`);
+        return cached;
       }
 
       // No fallback available - rethrow the error
@@ -174,51 +156,13 @@ export class ThirteenFService {
    * Fetch data using Perplexity AI for real-time 13F analysis
    */
   private async fetchFromPerplexity(institution: string, maxHoldings: number): Promise<ThirteenFPortfolio> {
-    const prompt = `Please provide the latest 13F filing information for ${institution}. I need:
-1. The most recent filing date
-2. Top ${maxHoldings} holdings with:
-   - Stock symbol
-   - Company name
-   - Number of shares
-   - Market value
-   - Percentage of total portfolio
-   - Any recent changes from previous filing
-
-Please format the response as structured data that can be parsed. Focus on accurate, up-to-date information from SEC filings.`;
-
-    const response = await this.fetchWithRetry('https://api.perplexity.ai/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${config.perplexityApiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'sonar-pro',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a financial data analyst specializing in SEC 13F filings. Provide accurate, structured information about institutional holdings.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: 2000,
-        temperature: 0.1
-      })
+    const response = await this.perplexityClient.analyze13F(institution, {
+      maxHoldings,
+      includeAnalysis: true,
+      recency: 'month'
     });
 
-    if (!response.ok) {
-      throw new TradingError(
-        `Perplexity API error: ${response.status} ${response.statusText}`,
-        'PERPLEXITY_API_ERROR',
-        { status: response.status, institution }
-      );
-    }
-
-    const data = await response.json();
-    return this.processPerplexityData(data, institution, maxHoldings);
+    return this.processPerplexityData(response, institution, maxHoldings);
   }
 
 
@@ -411,6 +355,9 @@ Please format the response as structured data that can be parsed. Focus on accur
     }
   }
 
+
+
+  // <================ START PLACE HOLDER ================>
   /**
    * Fetch sector information from external API
    */
@@ -432,6 +379,10 @@ Please format the response as structured data that can be parsed. Focus on accur
 
     return basicSectorMap[symbol.toUpperCase()];
   }
+
+  // <================ END PLACE HOLDER ================>
+
+
 
   /**
    * Calculate comprehensive analytics for the portfolio
@@ -483,38 +434,12 @@ Please format the response as structured data that can be parsed. Focus on accur
 
 
 
-  /**
-   * Enforce rate limiting between API requests
-   */
-  private async enforceRateLimit(): Promise<void> {
-    const timeSinceLastRequest = Date.now() - this.lastRequestTime;
-    if (timeSinceLastRequest < this.RATE_LIMIT_DELAY) {
-      await new Promise(resolve => setTimeout(resolve, this.RATE_LIMIT_DELAY - timeSinceLastRequest));
-    }
-    this.lastRequestTime = Date.now();
-  }
-
-  /**
-   * Fetch with retry logic
-   */
-  private async fetchWithRetry(url: string, options: any, retries = 0): Promise<any> {
-    try {
-      return await fetch(url, options);
-    } catch (error) {
-      if (retries < this.MAX_RETRIES) {
-        console.log(`🔄 Retrying request to ${url} (attempt ${retries + 1}/${this.MAX_RETRIES})`);
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retries) * 1000));
-        return this.fetchWithRetry(url, options, retries + 1);
-      }
-      throw error;
-    }
-  }
 
   /**
    * Clear cache (useful for testing or manual refresh)
    */
-  public clearCache(): void {
-    this.cache.clear();
+  public async clearCache(): Promise<void> {
+    await this.cacheManager.clearType('13f_portfolio');
     this.sectorCache.clear();
     console.log('🧹 13F service cache cleared');
   }
@@ -523,15 +448,11 @@ Please format the response as structured data that can be parsed. Focus on accur
    * Get cache statistics
    */
   public getCacheStats(): { entries: number; size: number; oldestEntry?: string } {
-    const entries = this.cache.size;
-    const size = JSON.stringify([...this.cache.entries()]).length;
-    
-    if (entries > 0) {
-      const oldest = Math.min(...[...this.cache.values()].map(entry => entry.timestamp));
-      return { entries, size, oldestEntry: new Date(oldest).toISOString() };
-    }
-
-    return { entries, size };
+    const stats = this.cacheManager.getStats();
+    return { 
+      entries: stats.totalEntries, 
+      size: stats.totalSize
+    };
   }
 
   /**

@@ -30,6 +30,9 @@ export class CommandClassifier {
     recommendations: /(?:recommend|suggest|what\s+should\s+i|advice|opinion)/i,
     institutionalHoldings: /(?:13f|institutional|holdings|berkshire|buffett|ark|cathie)/i,
     
+    // Politician/Congressional queries
+    politician: /(?:politician|congress|senate|representative|congressman|congresswoman|senator|nancy\s+pelosi|aoc|elizabeth\s+warren|josh\s+hawley|ted\s+cruz|marco\s+rubio|chuck\s+schumer|mitch\s+mcconnell|paul\s+ryan|kevin\s+mccarthy|hakeem\s+jeffries|political|congressional|house\s+of\s+representatives|congress\s+member|elected\s+official)/i,
+    
     // Complex market concepts
     options: /(?:option|put|call|strike|expir)/i,
     derivatives: /(?:derivative|future|swap|forward)/i,
@@ -61,6 +64,35 @@ export class CommandClassifier {
     'mastercard': 'MA',
     'jp morgan': 'JPM',
     'bank of america': 'BAC'
+  };
+
+  private politicianNames = {
+    'nancy pelosi': 'Nancy Pelosi',
+    'aoc': 'Alexandria Ocasio-Cortez',
+    'alexandria ocasio-cortez': 'Alexandria Ocasio-Cortez',
+    'elizabeth warren': 'Elizabeth Warren',
+    'josh hawley': 'Josh Hawley',
+    'ted cruz': 'Ted Cruz',
+    'marco rubio': 'Marco Rubio',
+    'chuck schumer': 'Chuck Schumer',
+    'mitch mcconnell': 'Mitch McConnell',
+    'paul ryan': 'Paul Ryan',
+    'kevin mccarthy': 'Kevin McCarthy',
+    'hakeem jeffries': 'Hakeem Jeffries',
+    'dan crenshaw': 'Dan Crenshaw',
+    'ro khanna': 'Ro Khanna',
+    'mark cuban': 'Mark Cuban',
+    'mitt romney': 'Mitt Romney',
+    'john boehner': 'John Boehner',
+    'steny hoyer': 'Steny Hoyer',
+    'richard burr': 'Richard Burr',
+    'david perdue': 'David Perdue',
+    'kelly loeffler': 'Kelly Loeffler',
+    'james inhofe': 'James Inhofe',
+    'pat toomey': 'Pat Toomey',
+    'susan collins': 'Susan Collins',
+    'joe manchin': 'Joe Manchin',
+    'kyrsten sinema': 'Kyrsten Sinema'
   };
 
   /**
@@ -139,6 +171,54 @@ export class CommandClassifier {
     }
 
     return Array.from(tickers);
+  }
+
+  /**
+   * Extract politician names from input
+   */
+  extractPoliticians(input: string): string[] {
+    const politicians = new Set<string>();
+    const normalizedInput = input.toLowerCase();
+    
+    // Check for politician name patterns
+    for (const [searchTerm, fullName] of Object.entries(this.politicianNames)) {
+      if (normalizedInput.includes(searchTerm)) {
+        politicians.add(fullName);
+      }
+    }
+    
+    // Additional pattern matching for common politician query formats
+    const politicianPatterns = [
+      /(?:senator|rep|representative|congressman|congresswoman)\s+([a-z]+(?:\s+[a-z]+)*)/gi,
+      /([a-z]+(?:\s+[a-z]+)*)\s+(?:stock|holdings|trades|investments|portfolio)/gi
+    ];
+    
+    for (const pattern of politicianPatterns) {
+      const matches = normalizedInput.matchAll(pattern);
+      for (const match of matches) {
+        if (match[1]) {
+          const name = match[1].trim();
+          if (name.length > 2) {
+            // Capitalize first letter of each word
+            const capitalizedName = name.split(' ').map(word => 
+              word.charAt(0).toUpperCase() + word.slice(1)
+            ).join(' ');
+            politicians.add(capitalizedName);
+          }
+        }
+      }
+    }
+    
+    return Array.from(politicians);
+  }
+
+  /**
+   * Check if input is a politician-related query
+   */
+  isPoliticianQuery(input: string): boolean {
+    const normalizedInput = input.toLowerCase();
+    return this.complexPatterns.politician.test(normalizedInput) ||
+           this.extractPoliticians(input).length > 0;
   }
 
   /**
@@ -248,6 +328,8 @@ export class CommandClassifier {
       simpleMatches,
       complexMatches,
       extractedTickers: this.extractTickers(input),
+      extractedPoliticians: this.extractPoliticians(input),
+      isPoliticianQuery: this.isPoliticianQuery(input),
       estimatedCost: this.estimateCost(input)
     };
   }

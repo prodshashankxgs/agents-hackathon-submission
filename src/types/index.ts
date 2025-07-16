@@ -186,12 +186,21 @@ export interface ThirteenFIntent {
 
 
 
+export interface PoliticianIntent {
+  type: 'politician';
+  politician: string;
+  queryType: 'holdings' | 'trades' | 'profile' | 'analysis';
+  timeframe?: 'week' | 'month' | 'quarter' | 'year';
+  confidence: number;
+}
+
 export type AdvancedTradeIntent = 
   | (TradeIntent & { type: 'trade' })
   | HedgeIntent 
   | MarketAnalysisIntent 
   | TradeRecommendationIntent
-  | ThirteenFIntent;
+  | ThirteenFIntent
+  | PoliticianIntent;
 
 export interface HedgeRecommendation {
   strategy: string;

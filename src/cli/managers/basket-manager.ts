@@ -5,6 +5,8 @@ import { ThirteenFService, ThirteenFPortfolio, ThirteenFHolding } from '../../se
 import { BasketStorageService, PortfolioBasket } from '../../storage/basket-storage';
 import { AlpacaAdapter } from '../../brokers/alpaca-adapter';
 import { ValidationService } from '../../trading/validation-service';
+import { PerplexityClient } from '../../services/perplexity-client';
+import { CacheManager } from '../../services/cache-manager';
 import { formatCurrency, formatPercentage, formatLargeNumber } from '../utils/formatters';
 
 export interface BasketInvestment {
@@ -28,10 +30,18 @@ export class BasketManager {
   private basketStorage: BasketStorageService;
   private broker: AlpacaAdapter;
   private validator: ValidationService;
+  private perplexityClient: PerplexityClient;
+  private cacheManager: CacheManager;
 
   constructor() {
     this.basketStorage = new BasketStorageService();
-    this.thirteenFService = new ThirteenFService(this.basketStorage);
+    this.perplexityClient = new PerplexityClient();
+    this.cacheManager = new CacheManager();
+    this.thirteenFService = new ThirteenFService(
+      this.basketStorage,
+      this.perplexityClient,
+      this.cacheManager
+    );
     this.broker = new AlpacaAdapter();
     this.validator = new ValidationService(this.broker);
   }

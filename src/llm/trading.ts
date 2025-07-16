@@ -12,11 +12,23 @@ import {
   AccountInfo,
   Position
 } from '../types';
+import { PoliticianService } from '../services/politician-service-simple';
+import { PerplexityClient } from '../services/perplexity-client';
+import { CacheManager } from '../services/cache-manager';
+
+export interface PoliticianIntent {
+  type: 'politician';
+  politician: string;
+  queryType: 'holdings' | 'trades' | 'profile' | 'analysis';
+  timeframe?: 'week' | 'month' | 'quarter' | 'year';
+  confidence: number;
+}
 import { OpenAIService } from './openai-service';
 
 export class AdvancedTradingService {
   private openai: OpenAI;
   private basicService: OpenAIService;
+  private politicianService: PoliticianService;
   private liteModel = 'gpt-4o-mini';
   private heavyModel = 'gpt-4-turbo';
   private intentCache = new Map<string, { intent: AdvancedTradeIntent; timestamp: number }>();
@@ -28,6 +40,11 @@ export class AdvancedTradingService {
       apiKey: config.openaiApiKey,
     });
     this.basicService = new OpenAIService();
+    
+    // Initialize politician service
+    const perplexityClient = new PerplexityClient();
+    const cacheManager = new CacheManager();
+    this.politicianService = new PoliticianService(perplexityClient, cacheManager);
   }
 
   /**
@@ -56,6 +73,9 @@ export class AdvancedTradingService {
           break;
         case '13f':
           result = await this.parse13FIntent(userInput);
+          break;
+        case 'politician':
+          result = await this.parsePoliticianIntent(userInput);
           break;
         default:
           const tradeIntent = await this.basicService.parseTradeIntent(userInput);
@@ -86,8 +106,9 @@ export class AdvancedTradingService {
 - "analysis": Market analysis or technical/fundamental analysis
 - "recommendation": Investment recommendations or "what should I buy/sell" questions
 - "13f": Questions about institutional holdings or 13F filings
+- "politician": Questions about politician stock holdings, congressional trades, or political figures' investments
 
-Respond with just the category name (e.g., "trade", "hedge", etc.)`
+Respond with just the category name (e.g., "trade", "hedge", "politician", etc.)`
       },
       {
         role: 'user',
@@ -249,6 +270,60 @@ If they want to invest or copy the portfolio, use action "invest".`
       institution: parsed.institution,
       action: parsed.action,
       investmentAmount: parsed.investment_amount
+    };
+  }
+
+  private async parsePoliticianIntent(userInput: string): Promise<PoliticianIntent> {
+    const messages: OpenAI.ChatCompletionMessageParam[] = [
+      {
+        role: 'system',
+        content: `Parse this politician stock query and extract the key information.
+
+Respond with a JSON object containing:
+{
+  "politician": "name of the politician (e.g., 'Nancy Pelosi', 'Josh Hawley')",
+  "query_type": "holdings" | "trades" | "profile" | "analysis",
+  "timeframe": "week" | "month" | "quarter" | "year" // if mentioned, otherwise "month"
+}
+
+Query type guide:
+- "holdings": Current stock holdings/portfolio
+- "trades": Recent trading activity
+- "profile": General information about the politician
+- "analysis": Performance analysis or trading patterns
+
+Examples:
+- "What stocks does Nancy Pelosi own?" -> holdings
+- "Nancy Pelosi recent trades" -> trades
+- "How has AOC performed in the market?" -> analysis`
+      },
+      {
+        role: 'user',
+        content: userInput
+      }
+    ];
+
+    const response = await this.openai.chat.completions.create({
+      model: this.liteModel,
+      messages,
+      response_format: { type: 'json_object' },
+      max_tokens: 300,
+      temperature: 0.1
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new LLMError('Empty response from OpenAI');
+    }
+
+    const parsed = JSON.parse(content);
+
+    return {
+      type: 'politician',
+      politician: parsed.politician,
+      queryType: parsed.query_type,
+      timeframe: parsed.timeframe || 'month',
+      confidence: 0.85
     };
   }
 

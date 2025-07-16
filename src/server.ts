@@ -8,6 +8,8 @@ import { AlpacaAdapter } from './brokers/alpaca-adapter';
 import { ValidationService } from './trading/validation-service';
 import { ThirteenFService } from './services/13f-service';
 import { BasketStorageService } from './storage/basket-storage';
+import { PerplexityClient } from './services/perplexity-client';
+import { CacheManager } from './services/cache-manager';
 import { TradeIntent, CLIOptions, TradingError } from './types';
 import { brokerLimiter } from './utils/concurrency-limiter';
 import { performanceMiddleware, performanceMonitor } from './utils/performance-monitor';
@@ -27,7 +29,9 @@ const advancedTrading = new AdvancedTradingService();
 const broker = new AlpacaAdapter();
 const validator = new ValidationService(broker);
 const basketStorage = new BasketStorageService();
-const thirteenFService = new ThirteenFService(basketStorage);
+const perplexityClient = new PerplexityClient();
+const cacheManager = new CacheManager();
+const thirteenFService = new ThirteenFService(basketStorage, perplexityClient, cacheManager);
 
 // Development mode warnings
 if (config.nodeEnv === 'development') {

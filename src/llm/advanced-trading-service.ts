@@ -109,6 +109,7 @@ export class AdvancedTradingService {
 - "analysis": Market analysis or technical/fundamental analysis
 - "recommendation": Investment recommendations or "what should I buy/sell" questions
 - "13f": Questions about institutional holdings or 13F filings
+- "VIP Analysis": Questions about individuals (ex: Nancy Pelosi, Warren Buffet, Bill Ackman) holdings or stock filings
 
 Respond with just the category name (e.g., "trade", "hedge", etc.)`
       },
@@ -121,7 +122,7 @@ Respond with just the category name (e.g., "trade", "hedge", etc.)`
     const response = await this.openai.chat.completions.create({
       model: this.liteModel,
       messages,
-      max_tokens: 50,
+      max_completion_tokens: 50,
       temperature: 0
     });
 
@@ -163,7 +164,7 @@ If timeframe or risk_tolerance aren't specified, use reasonable defaults.`
     const response = await this.openai.chat.completions.create({
       model: this.liteModel,
       messages,
-      max_tokens: 300,
+      max_completion_tokens: 300,
       temperature: 0.1
     });
 
@@ -208,7 +209,7 @@ Extract all relevant stock symbols mentioned. If no specific timeframe is given,
     const response = await this.openai.chat.completions.create({
       model: this.liteModel,
       messages,
-      max_tokens: 300,
+      max_completion_tokens: 300,
       temperature: 0.1
     });
 
@@ -253,7 +254,7 @@ If they want to invest or copy the portfolio, use action "invest".`
     const response = await this.openai.chat.completions.create({
       model: this.liteModel,
       messages,
-      max_tokens: 300,
+      max_completion_tokens: 300,
       temperature: 0.1
     });
 
@@ -299,7 +300,7 @@ If specific details aren't mentioned, use reasonable defaults or null.`
     const response = await this.openai.chat.completions.create({
       model: this.liteModel,
       messages,
-      max_tokens: 300,
+      max_completion_tokens: 300,
       temperature: 0.1
     });
 
@@ -331,7 +332,21 @@ If specific details aren't mentioned, use reasonable defaults or null.`
     const messages: OpenAI.ChatCompletionMessageParam[] = [
       {
         role: 'system',
-        content: `You are an expert financial advisor specializing in risk management and hedging strategies.
+        content: `You are a senior financial advisor with 15+ years of experience in institutional risk management and derivative hedging strategies. You specialize in:
+- Portfolio risk assessment and quantitative analysis
+- Designing hedging strategies using options, futures, swaps, and other derivatives
+- Cross-asset class risk management (equities, fixed income, currencies, commodities)
+- Stress testing and scenario analysis
+- Regulatory compliance (Basel III, Dodd-Frank, MiFID II)
+
+When providing advice:
+- Always assess risk tolerance and investment objectives first
+- Quantify risks using appropriate metrics (VaR, CVaR, beta, duration, etc.)
+- Present multiple hedging alternatives with clear trade-offs
+- Include cost-benefit analysis of proposed strategies
+- Consider market conditions, liquidity, and implementation complexity
+- Provide specific examples and case studies when relevant
+- Flag potential regulatory or operational constraints
 
 Generate a comprehensive hedging recommendation for:
 - Primary Position: ${hedgeIntent.primarySymbol}
@@ -374,7 +389,7 @@ Respond with a JSON object:
     const response = await this.openai.chat.completions.create({
       model: this.heavyModel,
       messages,
-      max_tokens: 1200,
+      max_completion_tokens: 1200,
       temperature: 0.2
     });
 
@@ -450,7 +465,7 @@ Please provide a detailed analysis in the following JSON format:
     const response = await this.openai.chat.completions.create({
       model: this.heavyModel,
       messages,
-      max_tokens: 1500,
+      max_completion_tokens: 1500,
       temperature: 0.2
     });
 
@@ -525,13 +540,13 @@ Provide comprehensive trading recommendations in the following JSON format:
     const response = await this.openai.chat.completions.create({
       model: this.heavyModel,
       messages,
-      max_tokens: 1500,
+      max_completion_tokens: 1500,
       temperature: 0.2
     });
-
+    
     const content = response.choices[0]?.message?.content;
     if (!content) {
-      throw new LLMError('Empty response from OpenAI');
+      throw new LLMError("Empty response from LLM Provider")
     }
 
     const jsonResponse = this.extractJsonFromResponse(content);
