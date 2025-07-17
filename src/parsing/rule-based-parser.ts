@@ -123,7 +123,37 @@ export class RuleBasedParser {
       })
     },
 
-    // Natural language amounts (hundreds, thousands)
+    // Sell with limit price (dollars)
+    {
+      name: 'sell_limit_dollars',
+      regex: /^(?:sell|dispose|liquidate)\s+\$(\d+(?:\.\d{2})?)\s+(?:of\s+|worth\s+of\s+)?([A-Z]{1,5})\s+at\s+\$?(\d+(?:\.\d{2})?)$/i,
+      confidence: 0.92,
+      extract: (match: RegExpMatchArray): TradeIntent => ({
+        action: 'sell',
+        symbol: match[2]?.toUpperCase() || '',
+        amountType: 'dollars',
+        amount: parseFloat(match[1] || '0'),
+        orderType: 'limit',
+        limitPrice: parseFloat(match[3] || '0')
+      })
+    },
+
+    // Sell shares with limit price
+    {
+      name: 'sell_limit_shares',
+      regex: /^(?:sell|dispose|liquidate)\s+(\d+)\s+(?:shares?|stocks?)\s+(?:of\s+)?([A-Z]{1,5})\s+at\s+\$?(\d+(?:\.\d{2})?)$/i,
+      confidence: 0.92,
+      extract: (match: RegExpMatchArray): TradeIntent => ({
+        action: 'sell',
+        symbol: match[2]?.toUpperCase() || '',
+        amountType: 'shares',
+        amount: parseInt(match[1] || '0'),
+        orderType: 'limit',
+        limitPrice: parseFloat(match[3] || '0')
+      })
+    },
+
+    // Natural language amounts (hundreds, thousands) - BUY
     {
       name: 'buy_natural_numbers',
       regex: /^(?:buy|purchase)\s+(one\s+hundred|two\s+hundred|three\s+hundred|four\s+hundred|five\s+hundred|six\s+hundred|seven\s+hundred|eight\s+hundred|nine\s+hundred|one\s+thousand|two\s+thousand)\s+(?:dollars?\s+)?(?:of\s+|worth\s+of\s+)?([A-Z]{1,5})$/i,
@@ -141,7 +171,25 @@ export class RuleBasedParser {
       }
     },
 
-    // Fractional amounts (half, quarter)
+    // Natural language amounts (hundreds, thousands) - SELL
+    {
+      name: 'sell_natural_numbers',
+      regex: /^(?:sell|dispose|liquidate)\s+(one\s+hundred|two\s+hundred|three\s+hundred|four\s+hundred|five\s+hundred|six\s+hundred|seven\s+hundred|eight\s+hundred|nine\s+hundred|one\s+thousand|two\s+thousand)\s+(?:dollars?\s+)?(?:of\s+|worth\s+of\s+)?([A-Z]{1,5})$/i,
+      confidence: 0.88,
+      extract: (match: RegExpMatchArray): TradeIntent => {
+        const amountText = match[1]?.toLowerCase().replace(/\s+/g, ' ') || '';
+        const amount = this.parseNaturalNumber(amountText);
+        return {
+          action: 'sell',
+          symbol: match[2]?.toUpperCase() || '',
+          amountType: 'dollars',
+          amount: amount,
+          orderType: 'market'
+        };
+      }
+    },
+
+    // Fractional amounts (half, quarter) - BUY
     {
       name: 'buy_fractional',
       regex: /^(?:buy|purchase|get)\s+(half|quarter)\s+(?:a\s+)?(?:share|stock)\s+(?:of\s+)?([A-Z]{1,5})$/i,
@@ -153,6 +201,54 @@ export class RuleBasedParser {
           symbol: match[2]?.toUpperCase() || '',
           amountType: 'shares',
           amount: fraction,
+          orderType: 'market'
+        };
+      }
+    },
+
+    // Fractional amounts (half, quarter) - SELL
+    {
+      name: 'sell_fractional',
+      regex: /^(?:sell|dispose|liquidate)\s+(half|quarter)\s+(?:a\s+)?(?:share|stock)\s+(?:of\s+)?([A-Z]{1,5})$/i,
+      confidence: 0.85,
+      extract: (match: RegExpMatchArray): TradeIntent => {
+        const fraction = match[1]?.toLowerCase() === 'half' ? 0.5 : 0.25;
+        return {
+          action: 'sell',
+          symbol: match[2]?.toUpperCase() || '',
+          amountType: 'shares',
+          amount: fraction,
+          orderType: 'market'
+        };
+      }
+    },
+
+    // Sell percentage of position
+    {
+      name: 'sell_percentage',
+      regex: /^(?:sell|dispose|liquidate)\s+(\d+)%\s+(?:of\s+)?(?:my\s+)?([A-Z]{1,5})(?:\s+position)?$/i,
+      confidence: 0.87,
+      extract: (match: RegExpMatchArray): TradeIntent => ({
+        action: 'sell',
+        symbol: match[2]?.toUpperCase() || '',
+        amountType: 'shares',
+        amount: parseInt(match[1] || '0') / 100, // Store as decimal percentage
+        orderType: 'market'
+      })
+    },
+
+    // Sell half/quarter of position
+    {
+      name: 'sell_position_fraction',
+      regex: /^(?:sell|dispose|liquidate)\s+(half|quarter)\s+(?:of\s+)?(?:my\s+)?([A-Z]{1,5})(?:\s+position)?$/i,
+      confidence: 0.87,
+      extract: (match: RegExpMatchArray): TradeIntent => {
+        const fraction = match[1]?.toLowerCase() === 'half' ? 0.5 : 0.25;
+        return {
+          action: 'sell',
+          symbol: match[2]?.toUpperCase() || '',
+          amountType: 'shares',
+          amount: fraction, // Store as decimal percentage
           orderType: 'market'
         };
       }
