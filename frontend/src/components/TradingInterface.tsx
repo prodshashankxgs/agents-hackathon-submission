@@ -60,6 +60,7 @@ export function TradingInterface() {
   const [isLoading, setIsLoading] = useState(false)
   const [loadingMessage, setLoadingMessage] = useState('')
   const [showConfirmation, setShowConfirmation] = useState(false)
+  const [isConfirmationAnimatingOut, setIsConfirmationAnimatingOut] = useState(false)
   const [tradeHistory, setTradeHistory] = useState<Array<{
     command: string
     result: TradeResult
@@ -424,7 +425,7 @@ export function TradingInterface() {
     }
     
     setIsLoading(true)
-    setShowConfirmation(false)
+    hideConfirmationWithAnimation()
     
     // Add execution step to processing
     const executionStep: ProcessingStep = { 
@@ -494,13 +495,23 @@ export function TradingInterface() {
     }
   }
 
+  const hideConfirmationWithAnimation = (callback?: () => void) => {
+    setIsConfirmationAnimatingOut(true)
+    setTimeout(() => {
+      setShowConfirmation(false)
+      setIsConfirmationAnimatingOut(false)
+      callback?.()
+    }, 300) // Match the animation duration
+  }
+
   const handleCancelTrade = () => {
-    setShowConfirmation(false)
-    setParsedCommand(null)
-    setCommand('')
-    resetProcessing()
-    setIsLoading(false)
-    inputRef.current?.focus()
+    hideConfirmationWithAnimation(() => {
+      setParsedCommand(null)
+      setCommand('')
+      resetProcessing()
+      setIsLoading(false)
+      inputRef.current?.focus()
+    })
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -839,7 +850,7 @@ export function TradingInterface() {
 
                     {/* Modern Confirmation UI */}
                     {showConfirmation && parsedCommand.isValid && (
-                      <div className={`mt-4 pt-4 border-t border-green-200 space-y-4 slide-in-bottom ${isLoading ? 'trade-success' : ''}`}>
+                      <div className={`mt-4 pt-4 border-t border-green-200 space-y-4 ${isConfirmationAnimatingOut ? 'slide-out-bottom' : 'slide-in-bottom'} ${isLoading ? 'trade-success' : ''}`}>
                         <div className="flex items-center justify-between">
                           <p className="text-base font-semibold text-gray-900">
                             Confirm Trade Execution
