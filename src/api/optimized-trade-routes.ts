@@ -1,0 +1,459 @@
+import express from 'express';
+import { UnifiedTradeProcessor } from '../llm/unified-trade-processor';
+import { AlpacaAdapter } from '../brokers/alpaca-adapter';
+import { ValidationService } from '../trading/validation-service';
+import { TradeIntent } from '../types';
+
+/**
+ * Optimized API routes for core trading functionality
+ * 
+ * Features:
+ * - Fast parsing with multiple tiers
+ * - Streamlined validation
+ * - Parallel processing where possible
+ * - Comprehensive error handling
+ * - Response caching
+ */
+export class OptimizedTradeRoutes {
+  private tradeProcessor: UnifiedTradeProcessor;
+  private broker: AlpacaAdapter;
+  private validator: ValidationService;
+  private router: express.Router;
+
+  constructor() {
+    this.tradeProcessor = new UnifiedTradeProcessor();
+    this.broker = new AlpacaAdapter();
+    this.validator = new ValidationService(this.broker);
+    this.router = express.Router();
+    this.setupRoutes();
+  }
+
+  /**
+   * Setup all trading routes
+   */
+  private setupRoutes(): void {
+    // Fast trade parsing endpoint
+    this.router.post('/parse', this.handleParseTrade.bind(this));
+    
+    // Trade validation endpoint
+    this.router.post('/validate', this.handleValidateTrade.bind(this));
+    
+    // Trade execution endpoint
+    this.router.post('/execute', this.handleExecuteTrade.bind(this));
+    
+    // Combined parse + validate + execute endpoint
+    this.router.post('/trade', this.handleFullTrade.bind(this));
+    
+    // Account information endpoint
+    this.router.get('/account', this.handleAccountInfo.bind(this));
+    
+    // Portfolio/positions endpoint
+    this.router.get('/portfolio', this.handlePortfolio.bind(this));
+    
+    // Market data endpoint
+    this.router.get('/market/:symbol', this.handleMarketData.bind(this));
+    
+    // Health check endpoint
+    this.router.get('/health', this.handleHealthCheck.bind(this));
+    
+    // Trading patterns endpoint (for autocomplete)
+    this.router.get('/patterns', this.handleTradingPatterns.bind(this));
+  }
+
+  /**
+   * Parse trade command using optimized multi-tier parsing
+   */
+  private async handleParseTrade(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { command } = req.body;
+
+      if (!command?.trim()) {
+        res.status(400).json({
+          success: false,
+          error: 'Command is required',
+          code: 'MISSING_COMMAND'
+        });
+        return;
+      }
+
+      const startTime = Date.now();
+      
+      // Use unified trade processor
+      const parseResult = await this.tradeProcessor.processTradeCommand(command);
+      const totalTime = Date.now() - startTime;
+
+      res.json({
+        success: true,
+        data: {
+          intent: parseResult.intent,
+          confidence: parseResult.confidence,
+          processingTime: parseResult.processingTime,
+          totalTime,
+          cached: parseResult.cached,
+          summary: this.tradeProcessor.generateTradeSummary(parseResult.intent)
+        }
+      });
+
+    } catch (error) {
+      this.handleError(res, error, 'PARSE_ERROR');
+    }
+  }
+
+  /**
+   * Validate a trade intent
+   */
+  private async handleValidateTrade(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { intent } = req.body;
+
+      if (!intent) {
+        res.status(400).json({
+          success: false,
+          error: 'Trade intent is required',
+          code: 'MISSING_INTENT'
+        });
+        return;
+      }
+
+      const startTime = Date.now();
+      const validation = await this.validator.validateTrade(intent);
+      const validationTime = Date.now() - startTime;
+
+      res.json({
+        success: true,
+        data: {
+          validation,
+          validationTime,
+          canExecute: validation.isValid
+        }
+      });
+
+    } catch (error) {
+      this.handleError(res, error, 'VALIDATION_ERROR');
+    }
+  }
+
+  /**
+   * Execute a validated trade
+   */
+  private async handleExecuteTrade(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { intent, skipValidation = false } = req.body;
+
+      if (!intent) {
+        res.status(400).json({
+          success: false,
+          error: 'Trade intent is required',
+          code: 'MISSING_INTENT'
+        });
+        return;
+      }
+
+      const startTime = Date.now();
+      
+      // Validate unless explicitly skipped
+      if (!skipValidation) {
+        const validation = await this.validator.validateTrade(intent);
+        if (!validation.isValid) {
+          res.status(400).json({
+            success: false,
+            error: 'Trade validation failed',
+            code: 'VALIDATION_FAILED',
+            details: {
+              errors: validation.errors,
+              warnings: validation.warnings
+            }
+          });
+          return;
+        }
+      }
+
+      // Execute the trade
+      const result = await this.broker.executeOrder(intent);
+      const executionTime = Date.now() - startTime;
+
+      res.json({
+        success: result.success,
+        data: {
+          result,
+          executionTime
+        },
+        error: result.success ? undefined : result.error
+      });
+
+    } catch (error) {
+      this.handleError(res, error, 'EXECUTION_ERROR');
+    }
+  }
+
+  /**
+   * Full trade pipeline: parse + validate + execute
+   */
+  private async handleFullTrade(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { command, dryRun = false, skipValidation = false } = req.body;
+
+      if (!command?.trim()) {
+        res.status(400).json({
+          success: false,
+          error: 'Trade command is required',
+          code: 'MISSING_COMMAND'
+        });
+        return;
+      }
+
+      const pipeline = {
+        startTime: Date.now(),
+        parse: { startTime: 0, endTime: 0, duration: 0 },
+        validate: { startTime: 0, endTime: 0, duration: 0 },
+        execute: { startTime: 0, endTime: 0, duration: 0 }
+      };
+
+      // Step 1: Parse
+      pipeline.parse.startTime = Date.now();
+      const parseResult = await this.tradeProcessor.processTradeCommand(command);
+      pipeline.parse.endTime = Date.now();
+      pipeline.parse.duration = pipeline.parse.endTime - pipeline.parse.startTime;
+
+      // No early validation failure - let validation step handle it
+
+      // Step 2: Validate (unless skipped)
+      let validation: any = null;
+      if (!skipValidation) {
+        pipeline.validate.startTime = Date.now();
+        validation = await this.validator.validateTrade(parseResult.intent);
+        pipeline.validate.endTime = Date.now();
+        pipeline.validate.duration = pipeline.validate.endTime - pipeline.validate.startTime;
+
+        if (!validation.isValid) {
+          res.status(400).json({
+            success: false,
+            error: 'Trade validation failed',
+            code: 'VALIDATION_FAILED',
+            data: {
+              intent: parseResult.intent,
+              validation,
+              pipeline: {
+                parse: pipeline.parse,
+                validate: pipeline.validate,
+                totalTime: Date.now() - pipeline.startTime
+              }
+            }
+          });
+          return;
+        }
+      }
+
+      // Step 3: Execute (or simulate if dry run)
+      pipeline.execute.startTime = Date.now();
+      let result: any;
+      
+      if (dryRun) {
+        result = {
+          success: true,
+          message: 'DRY RUN - Trade would execute successfully',
+          orderId: 'DRY_RUN_' + Date.now(),
+          timestamp: new Date(),
+          isDryRun: true,
+          estimatedCost: validation?.estimatedCost || 0,
+          estimatedShares: validation?.estimatedShares || 0
+        };
+      } else {
+        result = await this.broker.executeOrder(parseResult.intent);
+      }
+      
+      pipeline.execute.endTime = Date.now();
+      pipeline.execute.duration = pipeline.execute.endTime - pipeline.execute.startTime;
+
+      const totalTime = Date.now() - pipeline.startTime;
+
+      res.json({
+        success: result.success,
+        data: {
+          intent: parseResult.intent,
+          validation: skipValidation ? null : validation,
+          result,
+          pipeline: {
+            parse: pipeline.parse,
+            validate: skipValidation ? null : pipeline.validate,
+            execute: pipeline.execute,
+            totalTime
+          },
+          confidence: parseResult.confidence,
+          cached: parseResult.cached,
+          summary: this.tradeProcessor.generateTradeSummary(parseResult.intent)
+        },
+        error: result.success ? undefined : result.error
+      });
+
+    } catch (error) {
+      this.handleError(res, error, 'FULL_TRADE_ERROR');
+    }
+  }
+
+  /**
+   * Get account information
+   */
+  private async handleAccountInfo(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const accountInfo = await this.broker.getAccountInfo();
+      
+      res.json({
+        success: true,
+        data: accountInfo
+      });
+
+    } catch (error) {
+      this.handleError(res, error, 'ACCOUNT_ERROR');
+    }
+  }
+
+  /**
+   * Get portfolio positions
+   */
+  private async handlePortfolio(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const accountInfo = await this.broker.getAccountInfo();
+      
+      res.json({
+        success: true,
+        data: {
+          positions: accountInfo.positions,
+          portfolioValue: accountInfo.portfolioValue,
+          totalPositions: accountInfo.positions.length,
+          hasPositions: accountInfo.positions.length > 0
+        }
+      });
+
+    } catch (error) {
+      this.handleError(res, error, 'PORTFOLIO_ERROR');
+    }
+  }
+
+  /**
+   * Get market data for a symbol
+   */
+  private async handleMarketData(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { symbol } = req.params;
+      
+      if (!symbol || !/^[A-Z]{1,5}$/.test(symbol.toUpperCase())) {
+        res.status(400).json({
+          success: false,
+          error: 'Valid stock symbol is required',
+          code: 'INVALID_SYMBOL'
+        });
+        return;
+      }
+
+      const marketData = await this.broker.getMarketData(symbol.toUpperCase());
+      
+      res.json({
+        success: true,
+        data: marketData
+      });
+
+    } catch (error) {
+      this.handleError(res, error, 'MARKET_DATA_ERROR');
+    }
+  }
+
+  /**
+   * Health check endpoint
+   */
+  private async handleHealthCheck(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const health = {
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        services: {
+          broker: 'unknown',
+          parser: 'healthy',
+          validator: 'healthy'
+        }
+      };
+
+      // Test broker connection
+      try {
+        await this.broker.isMarketOpen();
+        health.services.broker = 'healthy';
+      } catch (error) {
+        health.services.broker = 'unhealthy';
+        health.status = 'degraded';
+      }
+
+      res.json({
+        success: true,
+        data: health
+      });
+
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: 'Health check failed',
+        code: 'HEALTH_CHECK_FAILED'
+      });
+    }
+  }
+
+  /**
+   * Get common trading patterns for autocomplete
+   */
+  private handleTradingPatterns(req: express.Request, res: express.Response): void {
+    const patterns = [
+      'buy 100 shares of AAPL',
+      'buy $1000 of TSLA', 
+      'sell 50 shares of MSFT',
+      'buy $500 worth of Amazon',
+      'sell all GOOGL',
+      'purchase 25 shares of NVDA'
+    ];
+    const stats = this.tradeProcessor.getStats();
+
+    res.json({
+      success: true,
+      data: {
+        patterns,
+        stats,
+        totalPatterns: patterns.length
+      }
+    });
+  }
+
+  /**
+   * Centralized error handling
+   */
+  private handleError(res: express.Response, error: unknown, code: string): void {
+    console.error(`API Error [${code}]:`, error);
+
+    if (error instanceof Error) {
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        code,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: 'An unknown error occurred',
+        code,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+
+  /**
+   * Get the Express router
+   */
+  getRouter(): express.Router {
+    return this.router;
+  }
+
+  /**
+   * Add custom middleware to the router
+   */
+  addMiddleware(middleware: express.RequestHandler): void {
+    this.router.use(middleware);
+  }
+}

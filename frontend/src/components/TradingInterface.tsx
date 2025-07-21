@@ -497,11 +497,12 @@ export function TradingInterface() {
 
   const hideConfirmationWithAnimation = (callback?: () => void) => {
     setIsConfirmationAnimatingOut(true)
+    // Immediately hide and trigger callback
+    setShowConfirmation(false)
     setTimeout(() => {
-      setShowConfirmation(false)
       setIsConfirmationAnimatingOut(false)
       callback?.()
-    }, 300) // Match the animation duration
+    }, 150) // Match the faster animation duration
   }
 
   const handleCancelTrade = () => {

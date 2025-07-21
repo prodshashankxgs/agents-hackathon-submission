@@ -103,7 +103,7 @@ export interface AppConfig {
   alpacaSecretKey: string;
   alpacaBaseUrl: string;
 
-  perplexityApiKey: string;
+  // perplexityApiKey: string; // Removed with 13F/VIP/politician features
   maxDailySpending: number;
   maxPositionSize: number;
   nodeEnv: string;
@@ -177,30 +177,11 @@ export interface TradeRecommendationIntent {
   strategyType: 'growth' | 'value' | 'income' | 'momentum' | 'general';
 }
 
-export interface ThirteenFIntent {
-  type: '13f';
-  institution: string;
-  action: 'query' | 'invest';
-  investmentAmount?: number;
-}
-
-
-
-export interface PoliticianIntent {
-  type: 'politician';
-  politician: string;
-  queryType: 'holdings' | 'trades' | 'profile' | 'analysis';
-  timeframe?: 'week' | 'month' | 'quarter' | 'year';
-  confidence: number;
-}
-
 export type AdvancedTradeIntent = 
   | (TradeIntent & { type: 'trade' })
   | HedgeIntent 
   | MarketAnalysisIntent 
-  | TradeRecommendationIntent
-  | ThirteenFIntent
-  | PoliticianIntent;
+  | TradeRecommendationIntent;
 
 export interface HedgeRecommendation {
   strategy: string;

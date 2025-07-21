@@ -1,13 +1,10 @@
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { OpenAIService } from '../llm/openai-service';
-import { AdvancedTradingService, PoliticianIntent } from '../llm/trading';
+import { UnifiedTradeProcessor } from '../llm/unified-trade-processor';
+import { AdvancedTradingService } from '../llm/trading';
 import { AlpacaAdapter } from '../brokers/alpaca-adapter';
 import { ValidationService } from '../trading/validation-service';
 import { TradeIntent, AccountInfo, TradeResult, AdvancedTradeIntent } from '../types';
-import { PoliticianService } from '../services/politician-service-simple';
-import { PerplexityClient } from '../services/perplexity-client';
-import { CacheManager } from '../services/cache-manager';
 
 interface ChatContext {
   accountInfo?: AccountInfo;
@@ -16,23 +13,17 @@ interface ChatContext {
 }
 
 export class TradingChatbot {
-  private openaiService: OpenAIService;
+  private tradeProcessor: UnifiedTradeProcessor;
   private advancedTrading: AdvancedTradingService;
   private broker: AlpacaAdapter;
   private validator: ValidationService;
-  private politicianService: PoliticianService;
   private context: ChatContext;
 
   constructor() {
-    this.openaiService = new OpenAIService();
+    this.tradeProcessor = new UnifiedTradeProcessor();
     this.advancedTrading = new AdvancedTradingService();
     this.broker = new AlpacaAdapter();
     this.validator = new ValidationService(this.broker);
-    
-    // Initialize politician service
-    const perplexityClient = new PerplexityClient();
-    const cacheManager = new CacheManager();
-    this.politicianService = new PoliticianService(perplexityClient, cacheManager);
     
     this.context = {
       conversationHistory: []
@@ -49,7 +40,6 @@ export class TradingChatbot {
     console.log(chalk.gray('• Analyze hedging strategies (e.g., "how to hedge my LULU position for earnings")'));
     console.log(chalk.gray('• Provide market analysis (e.g., "analyze NVDA risk factors")'));
     console.log(chalk.gray('• Give trade recommendations (e.g., "what to buy if tariffs increase")'));
-    console.log(chalk.gray('• Look up politician stock holdings (e.g., "what stocks does Nancy Pelosi own?")'));
     console.log(chalk.gray('• Check your account (e.g., "show my portfolio")'));
     console.log(chalk.gray('• Answer trading questions\n'));
     console.log(chalk.yellow('Type "exit" or "quit" to leave\n'));
@@ -99,13 +89,28 @@ export class TradingChatbot {
       } else if (simpleIntent.type === 'price_check' && simpleIntent.symbol) {
         await this.handleMarketInfo(simpleIntent.symbol);
       } else {
-        // Use advanced parsing for more complex queries
+        // Try unified trade processing first
         try {
-          const advancedIntent = await this.advancedTrading.parseAdvancedIntent(message, this.context.accountInfo);
-          await this.handleAdvancedIntent(advancedIntent);
+          const result = await this.tradeProcessor.processTradeCommand(message);
+          if (result.confidence > 0.8) {
+            await this.handleTradeExecution(result.intent);
+          } else {
+            // Try advanced parsing for analysis/hedging queries
+            try {
+              const advancedIntent = await this.advancedTrading.parseAdvancedIntent(message, this.context.accountInfo);
+              await this.handleAdvancedIntent(advancedIntent);
+            } catch (error) {
+              await this.handleGeneralQuery(message);
+            }
+          }
         } catch (error) {
-          // Fallback to general query if advanced parsing fails
-          await this.handleGeneralQuery(message);
+          // Try advanced parsing for analysis/hedging queries
+          try {
+            const advancedIntent = await this.advancedTrading.parseAdvancedIntent(message, this.context.accountInfo);
+            await this.handleAdvancedIntent(advancedIntent);
+          } catch (error) {
+            await this.handleGeneralQuery(message);
+          }
         }
       }
 
@@ -144,9 +149,10 @@ export class TradingChatbot {
 
   private async handleTradeIntent(message: string): Promise<void> {
     try {
-      // Parse the trade intent
+      // Parse the trade intent using unified processor
       console.log(chalk.gray('Let me process your trade request...'));
-      const intent = await this.openaiService.parseTradeIntent(message);
+      const result = await this.tradeProcessor.processTradeCommand(message);
+      const intent = result.intent;
       
       // Show what we understood
       console.log(`\nI understand you want to ${intent.action} ${intent.amountType === 'dollars' ? '$' + intent.amount : intent.amount + ' shares'} of ${intent.symbol}.`);
@@ -294,16 +300,23 @@ export class TradingChatbot {
 
   private async handleGeneralQuery(message: string): Promise<void> {
     try {
-      // Use Claude to generate a helpful response
-      const response = await this.openaiService.generateResponse(message, {
-        accountInfo: this.context.accountInfo,
-        conversationHistory: this.context.conversationHistory
-      });
+      // Check if this might be a trade command first
+      try {
+        const result = await this.tradeProcessor.processTradeCommand(message);
+        if (result.confidence > 0.7) {
+          await this.handleTradeExecution(result.intent);
+          return;
+        }
+      } catch {
+        // Not a trade command, continue with general query
+      }
       
-      console.log(response);
-      
-      // Add assistant response to history
-      this.context.conversationHistory.push({ role: 'assistant', content: response });
+      // Fallback to general conversational response
+      console.log('I can help you trade stocks, check your account balance, or answer questions about the market. What would you like to know?');
+      console.log('\nFor trading, try commands like:');
+      console.log('• "buy $100 of Apple"');
+      console.log('• "sell 50 shares of TSLA"');
+      console.log('• "buy 10 MSFT limit $400"');
     } catch (error) {
       console.log('I can help you trade stocks, check your account balance, or answer questions about the market. What would you like to know?');
     }
@@ -329,9 +342,6 @@ export class TradingChatbot {
         await this.handleRecommendationIntent(intent);
         break;
         
-      case 'politician':
-        await this.handlePoliticianIntent(intent as PoliticianIntent);
-        break;
     }
   }
 
@@ -553,116 +563,4 @@ export class TradingChatbot {
     console.log('\n' + chalk.gray('Note: These are AI-generated recommendations. Always do your own due diligence.'));
   }
 
-  private async handlePoliticianIntent(intent: PoliticianIntent): Promise<void> {
-    console.log(chalk.cyan(`Looking up ${intent.politician}'s stock information...`));
-    
-    try {
-      switch (intent.queryType) {
-        case 'holdings':
-          await this.displayPoliticianHoldings(intent.politician);
-          break;
-        case 'trades':
-          await this.displayPoliticianTrades(intent.politician, intent.timeframe);
-          break;
-        case 'profile':
-          await this.displayPoliticianProfile(intent.politician);
-          break;
-        case 'analysis':
-          await this.displayPoliticianAnalysis(intent.politician);
-          break;
-        default:
-          // Default to holdings if query type is unclear
-          await this.displayPoliticianHoldings(intent.politician);
-      }
-    } catch (error) {
-      console.log(chalk.red(`I couldn't find stock information for ${intent.politician}. This could be because:`));
-      console.log(chalk.gray('• The name might be misspelled'));
-      console.log(chalk.gray('• They might not have recent stock disclosures'));
-      console.log(chalk.gray('• The data might not be available yet'));
-      console.log(chalk.gray('\nTry searching for a different politician or check the spelling.'));
-    }
-  }
-
-  private async displayPoliticianHoldings(politicianName: string): Promise<void> {
-    const holdings = await this.politicianService.getPoliticianHoldings(politicianName);
-    
-    if (holdings.length === 0) {
-      console.log(`\n${chalk.yellow('No significant stock holdings found for')} ${politicianName}.`);
-      return;
-    }
-    
-    console.log(`\n${chalk.white(`${politicianName}'s Stock Holdings:`)}`);
-    
-    let totalValue = 0;
-    holdings.forEach((holding, index) => {
-      totalValue += holding.estimatedValue;
-      console.log(`${index + 1}. ${chalk.bold(holding.symbol)} - ${holding.companyName}`);
-      console.log(`   Value: ${chalk.green(`$${holding.estimatedValue.toLocaleString()}`)}`);
-      console.log(`   Last Updated: ${new Date(holding.lastUpdated).toLocaleDateString()}`);
-      console.log('');
-    });
-    
-    console.log(`${chalk.white('Total Estimated Portfolio Value:')} ${chalk.green(`$${totalValue.toLocaleString()}`)}`);
-    console.log(chalk.gray('\nNote: Values are estimates based on disclosure filings and may not reflect current positions.'));
-  }
-
-  private async displayPoliticianTrades(politicianName: string, timeframe: string = 'month'): Promise<void> {
-    const trades = await this.politicianService.getPoliticianTrades(politicianName);
-    
-    if (trades.length === 0) {
-      console.log(`\n${chalk.yellow('No recent trades found for')} ${politicianName}.`);
-      return;
-    }
-    
-    console.log(`\n${chalk.white(`${politicianName}'s Recent Trades:`)}`);
-    
-    trades.forEach((trade, index) => {
-      const actionColor = trade.tradeType === 'buy' ? chalk.green : chalk.red;
-      const actionText = trade.tradeType.toUpperCase();
-      
-      console.log(`${index + 1}. ${actionColor(actionText)} ${chalk.bold(trade.symbol)} - ${trade.companyName}`);
-      console.log(`   Amount: ${chalk.yellow(`$${trade.amount.toLocaleString()}`)}`);
-      console.log(`   Date: ${new Date(trade.date).toLocaleDateString()}`);
-      console.log(`   Disclosed: ${trade.disclosed ? chalk.green('Yes') : chalk.red('No')}`);
-      console.log(`   Confidence: ${trade.confidence}%`);
-      console.log('');
-    });
-    
-    console.log(chalk.gray('\nNote: Trade data is based on congressional disclosure filings and may have reporting delays.'));
-  }
-
-  private async displayPoliticianProfile(politicianName: string): Promise<void> {
-    const profile = await this.politicianService.getPoliticianProfile(politicianName);
-    
-    console.log(`\n${chalk.white(`${profile.name} - Political Profile:`)}`);
-    console.log(`Title: ${profile.title}`);
-    console.log(`Party: ${profile.party}`);
-    console.log(`Office: ${profile.office}`);
-    
-    console.log(`\n${chalk.white('Portfolio Summary:')}`);
-    console.log(`Total Holdings: ${profile.holdings.length}`);
-    console.log(`Recent Trades: ${profile.recentTrades.length}`);
-    
-    if (profile.totalPortfolioValue) {
-      console.log(`Estimated Portfolio Value: ${chalk.green(`$${profile.totalPortfolioValue.toLocaleString()}`)}`);
-    }
-    
-    console.log(chalk.gray('\nNote: This information is compiled from public records and disclosure filings.'));
-  }
-
-  private async displayPoliticianAnalysis(politicianName: string): Promise<void> {
-    const profile = await this.politicianService.getPoliticianProfile(politicianName);
-    
-    console.log(`\n${chalk.white(`${politicianName} - Trading Performance Analysis:`)}`);
-    
-    console.log(`\n${chalk.white('Trading Summary:')}`);
-    console.log(`Total Holdings: ${profile.holdings.length}`);
-    console.log(`Recent Trades: ${profile.recentTrades.length}`);
-    
-    if (profile.totalPortfolioValue) {
-      console.log(`Portfolio Value: ${chalk.green(`$${profile.totalPortfolioValue.toLocaleString()}`)}`);
-    }
-    
-    console.log(chalk.gray('\nNote: Analysis is based on publicly available trading data and may not reflect all positions.'));
-  }
 } 

@@ -5,7 +5,6 @@ import {
   HedgeIntent, 
   MarketAnalysisIntent, 
   TradeRecommendationIntent,
-  ThirteenFIntent,
   HedgeRecommendation,
   MarketAnalysis,
   LLMError,
@@ -76,9 +75,6 @@ export class AdvancedTradingService {
           break;
         case 'recommendation':
           result = await this.parseRecommendationIntent(userInput);
-          break;
-        case '13f':
-          result = await this.parse13FIntent(userInput);
           break;
         default:
           const tradeIntent = await this.basicService.parseTradeIntent(userInput);
@@ -229,49 +225,6 @@ Extract all relevant stock symbols mentioned. If no specific timeframe is given,
     };
   }
 
-  private async parse13FIntent(userInput: string): Promise<ThirteenFIntent> {
-    const messages: OpenAI.ChatCompletionMessageParam[] = [
-      {
-        role: 'system',
-        content: `Parse this 13F/institutional holdings request and extract the key information.
-
-Respond with a JSON object containing:
-{
-  "institution": "name of the institution (e.g., 'Berkshire Hathaway', 'Warren Buffett')",
-  "action": "query" or "invest", // "query" for just asking about holdings, "invest" for wanting to copy the portfolio
-  "investment_amount": number // only if action is "invest" and amount is specified
-}
-
-If the user is asking about holdings/13F without mentioning investment, use action "query".
-If they want to invest or copy the portfolio, use action "invest".`
-      },
-      {
-        role: 'user',
-        content: userInput
-      }
-    ];
-
-    const response = await this.openai.chat.completions.create({
-      model: this.liteModel,
-      messages,
-      max_completion_tokens: 300,
-      temperature: 0.1
-    });
-
-    const content = response.choices[0]?.message?.content;
-    if (!content) {
-      throw new LLMError('Empty response from OpenAI');
-    }
-
-    const parsed = this.extractJsonFromResponse(content);
-
-    return {
-      type: '13f',
-      institution: parsed.institution,
-      action: parsed.action,
-      investmentAmount: parsed.investment_amount
-    };
-  }
 
   private async parseRecommendationIntent(userInput: string): Promise<TradeRecommendationIntent> {
     const messages: OpenAI.ChatCompletionMessageParam[] = [

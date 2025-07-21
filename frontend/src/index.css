@@ -769,7 +769,7 @@
   }
   
   .slide-out-bottom {
-    animation: slideOutBottom 0.3s var(--ease-out-expo);
+    animation: fadeOutSlide 0.15s var(--ease-out-expo) forwards;
   }
   
   .slide-in-right {
@@ -825,6 +825,17 @@
     to {
       opacity: 0;
       transform: translateY(10px) scale(0.98);
+    }
+  }
+  
+  @keyframes fadeOutSlide {
+    from {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(3px) scale(0.99);
     }
   }
   

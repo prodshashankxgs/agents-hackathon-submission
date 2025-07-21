@@ -6,10 +6,7 @@ import { OpenAIService } from './llm/openai-service';
 import { AdvancedTradingService } from './llm/trading';
 import { AlpacaAdapter } from './brokers/alpaca-adapter';
 import { ValidationService } from './trading/validation-service';
-import { ThirteenFService } from './services/13f-service';
 import { BasketStorageService } from './storage/basket-storage';
-import { PerplexityClient } from './services/perplexity-client';
-import { CacheManager } from './services/cache-manager';
 import { TradeIntent, CLIOptions, TradingError } from './types';
 import { brokerLimiter } from './utils/concurrency-limiter';
 import { performanceMiddleware, performanceMonitor } from './utils/performance-monitor';
@@ -29,9 +26,6 @@ const advancedTrading = new AdvancedTradingService();
 const broker = new AlpacaAdapter();
 const validator = new ValidationService(broker);
 const basketStorage = new BasketStorageService();
-const perplexityClient = new PerplexityClient();
-const cacheManager = new CacheManager();
-const thirteenFService = new ThirteenFService(basketStorage, perplexityClient, cacheManager);
 
 // Development mode warnings
 if (config.nodeEnv === 'development') {
@@ -361,107 +355,6 @@ app.post('/api/advanced/recommend', async (req, res) => {
   }
 });
 
-// 13F endpoints
-app.post('/api/advanced/13f', async (req, res) => {
-  try {
-    const { intent } = req.body;
-    
-    if (!intent || intent.type !== '13f') {
-      return res.status(400).json({ error: 'Invalid 13F intent' });
-    }
-
-    const portfolio = await thirteenFService.getPortfolio(intent.institution);
-    
-    return res.json({ portfolio });
-  } catch (error) {
-    console.error('13F query error:', error);
-    return res.status(500).json({ error: 'Failed to get 13F data' });
-  }
-});
-
-app.post('/api/advanced/13f/invest', async (req, res) => {
-  try {
-    const { intent, investmentAmount } = req.body;
-    
-    if (!intent || intent.type !== '13f') {
-      return res.status(400).json({ error: 'Invalid 13F intent' });
-    }
-
-    if (!investmentAmount || investmentAmount <= 0) {
-      return res.status(400).json({ error: 'Valid investment amount required' });
-    }
-
-    // Create investment basket using the new service method
-    const basketResult = await thirteenFService.createInvestmentBasket(
-      intent.institution, 
-      investmentAmount,
-      { minHoldingPercent: 0.5, maxPositions: 20 }
-    );
-    
-    // Execute trades for each holding using notional (dollar) amounts - PARALLEL EXECUTION
-    console.log(`🚀 Executing ${basketResult.allocations.length} trades in parallel for maximum speed...`);
-    
-    const tradePromises = basketResult.allocations.map(async (item: any) => {
-      if (item.targetValue <= 0) {
-        return {
-          symbol: item.symbol,
-          success: false,
-          error: 'Target value is zero or negative',
-          targetValue: item.targetValue
-        };
-      }
-
-      try {
-        const tradeIntent = {
-          action: 'buy' as const,
-          symbol: item.symbol,
-          amountType: 'dollars' as const,
-          amount: item.targetValue,
-          orderType: 'market' as const
-        };
-        
-        console.log(`⚡ Executing notional order for ${item.symbol}: $${item.targetValue}`);
-        
-        const result = await broker.executeOrder(tradeIntent);
-        
-        console.log(`✅ Order executed for ${item.symbol}: ${result.success ? 'SUCCESS' : 'FAILED'} - ${result.message}`);
-        
-        return {
-          symbol: item.symbol,
-          success: result.success,
-          orderId: result.orderId,
-          message: result.message,
-          targetValue: item.targetValue,
-          executedValue: result.executedValue,
-          executedShares: result.executedShares
-        };
-      } catch (error: any) {
-        console.error(`❌ Failed to execute trade for ${item.symbol}:`, error);
-        return {
-          symbol: item.symbol,
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error',
-          targetValue: item.targetValue
-        };
-      }
-    });
-
-    // Wait for all trades to complete simultaneously
-    const tradeResults = await Promise.all(tradePromises);
-    
-    const successCount = tradeResults.filter((r: any) => r.success).length;
-    console.log(`🎯 Basket execution complete: ${successCount}/${tradeResults.length} trades successful`);
-    
-    return res.json({
-      basket: basketResult,
-      allocation: basketResult.allocations,
-      tradeResults
-    });
-  } catch (error) {
-    console.error('13F investment error:', error);
-    return res.status(500).json({ error: 'Failed to execute 13F investment' });
-  }
-});
 
 
 
