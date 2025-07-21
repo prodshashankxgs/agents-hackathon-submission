@@ -47,6 +47,7 @@ export class ConcurrencyLimiter {
   }
 }
 
-// Global limiter for broker API calls
-export const brokerLimiter = new ConcurrencyLimiter(15);
-export const marketDataLimiter = new ConcurrencyLimiter(25);
+// Global limiters
+export const llmLimiter = new ConcurrencyLimiter(15);
+export const llmMarketDataLimiter = new ConcurrencyLimiter(25);
+export const brokerLimiter = new ConcurrencyLimiter(10);

@@ -207,4 +207,185 @@ export interface MarketAnalysis {
   priceTarget: number;
   recommendation: 'buy' | 'sell' | 'hold';
   reasoning: string;
-} 
+}
+
+// ===== OPTIONS TRADING TYPES =====
+
+// Options contract specifications
+export interface OptionContract {
+  symbol: string; // Underlying symbol (e.g., "AAPL")
+  optionSymbol: string; // Full options symbol (e.g., "AAPL240315C00150000")
+  contractType: 'call' | 'put';
+  strikePrice: number;
+  expirationDate: string; // ISO date string
+  multiplier: number; // Usually 100 for equity options
+  exchange: string;
+  underlying: string;
+}
+
+// Options chain data
+export interface OptionsChain {
+  symbol: string;
+  underlyingPrice: number;
+  expirationDates: string[];
+  chains: {
+    [expirationDate: string]: {
+      calls: OptionQuote[];
+      puts: OptionQuote[];
+    };
+  };
+}
+
+// Individual option quote
+export interface OptionQuote {
+  contract: OptionContract;
+  bid: number;
+  ask: number;
+  lastPrice: number;
+  volume: number;
+  openInterest: number;
+  impliedVolatility: number;
+  delta?: number;
+  gamma?: number;
+  theta?: number;
+  vega?: number;
+  rho?: number;
+  intrinsicValue: number;
+  timeValue: number;
+  inTheMoney: boolean;
+}
+
+// Options trade intent (extends the basic TradeIntent concept)
+export const OptionsTradeIntentSchema = z.object({
+  action: z.enum(['buy_to_open', 'sell_to_open', 'buy_to_close', 'sell_to_close']),
+  underlying: z.string().min(1, 'Underlying symbol cannot be empty.').max(10, 'Symbol is too long.'),
+  contractType: z.enum(['call', 'put']),
+  strikePrice: z.number().positive('Strike price must be positive.'),
+  expirationDate: z.string().refine(date => !isNaN(Date.parse(date)), 'Invalid expiration date.'),
+  quantity: z.number().positive('Quantity must be positive.'),
+  orderType: z.enum(['market', 'limit']),
+  limitPrice: z.number().positive('Limit price must be positive.').optional(),
+  strategy: z.enum(['single_leg', 'covered_call', 'cash_secured_put', 'protective_put', 'collar', 'iron_condor', 'butterfly', 'straddle', 'strangle']).optional(),
+}).refine(data => {
+  if (data.orderType === 'limit') {
+    return typeof data.limitPrice === 'number';
+  }
+  return true;
+}, {
+  message: 'Limit price is required for limit orders.',
+  path: ['limitPrice'],
+});
+
+export type OptionsTradeIntent = z.infer<typeof OptionsTradeIntentSchema>;
+
+// Multi-leg options strategy
+export interface OptionsStrategy {
+  name: string;
+  type: 'single_leg' | 'covered_call' | 'cash_secured_put' | 'protective_put' | 'collar' | 'iron_condor' | 'butterfly' | 'straddle' | 'strangle';
+  legs: OptionsLeg[];
+  maxProfit: number;
+  maxLoss: number;
+  breakeven: number[];
+  collateral: number;
+  margin: number;
+  description: string;
+}
+
+export interface OptionsLeg {
+  action: 'buy_to_open' | 'sell_to_open' | 'buy_to_close' | 'sell_to_close';
+  contract: OptionContract;
+  quantity: number;
+  price: number;
+  side: 'long' | 'short';
+}
+
+// Options position tracking
+export interface OptionsPosition {
+  id: string;
+  underlying: string;
+  legs: OptionsLeg[];
+  strategy: string;
+  openDate: Date;
+  quantity: number;
+  costBasis: number;
+  currentValue: number;
+  unrealizedPnL: number;
+  dayChange: number;
+  dayChangePercent: number;
+  greeks: {
+    delta: number;
+    gamma: number;
+    theta: number;
+    vega: number;
+    rho: number;
+  };
+  daysToExpiration: number;
+  status: 'open' | 'closed' | 'expired' | 'assigned' | 'exercised';
+}
+
+// Options validation result
+export interface OptionsValidation {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  estimatedCost: number;
+  estimatedCollateral: number;
+  marginRequirement: number;
+  accountBalance: number;
+  buyingPower: number;
+  maxProfit: number;
+  maxLoss: number;
+  breakeven: number[];
+  probabilityOfProfit: number;
+}
+
+// Options trade result
+export interface OptionsTradeResult {
+  success: boolean;
+  orderId?: string;
+  strategy: string;
+  legs: Array<{
+    contract: OptionContract;
+    executedPrice: number;
+    executedQuantity: number;
+  }>;
+  totalCost: number;
+  timestamp: Date;
+  message: string;
+  error?: string;
+}
+
+// Greeks calculations
+export interface GreeksCalculation {
+  delta: number; // Price sensitivity to underlying
+  gamma: number; // Rate of change of delta
+  theta: number; // Time decay
+  vega: number; // Volatility sensitivity
+  rho: number; // Interest rate sensitivity
+}
+
+// Options market data
+export interface OptionsMarketData {
+  underlying: string;
+  underlyingPrice: number;
+  impliedVolatility: number;
+  historicalVolatility: number;
+  volume: number;
+  openInterest: number;
+  lastUpdated: Date;
+}
+
+// Extended broker adapter interface for options
+export interface OptionsBrokerAdapter extends BrokerAdapter {
+  // Options-specific methods
+  validateOptionsOrder(order: OptionsTradeIntent): Promise<OptionsValidation>;
+  executeOptionsOrder(order: OptionsTradeIntent): Promise<OptionsTradeResult>;
+  getOptionsChain(symbol: string, expirationDate?: string): Promise<OptionsChain>;
+  getOptionsPositions(): Promise<OptionsPosition[]>;
+  getOptionsQuote(optionSymbol: string): Promise<OptionQuote>;
+  calculateGreeks(contract: OptionContract, underlyingPrice: number, volatility: number, riskFreeRate: number): Promise<GreeksCalculation>;
+  getOptionsMarketData(symbol: string): Promise<OptionsMarketData>;
+}
+
+// Unified trade intent that supports both stocks and options
+export type UnifiedTradeIntent = TradeIntent | OptionsTradeIntent;

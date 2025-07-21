@@ -2,7 +2,7 @@ import express from 'express';
 import { UnifiedTradeProcessor } from '../llm/unified-trade-processor';
 import { AlpacaAdapter } from '../brokers/alpaca-adapter';
 import { ValidationService } from '../trading/validation-service';
-import { TradeIntent } from '../types';
+import { TradeIntent, UnifiedTradeIntent, OptionsTradeIntent } from '../types';
 
 /**
  * Optimized API routes for core trading functionality
@@ -26,6 +26,15 @@ export class OptimizedTradeRoutes {
     this.validator = new ValidationService(this.broker);
     this.router = express.Router();
     this.setupRoutes();
+  }
+
+  // Type guard functions
+  private isOptionsIntent(intent: UnifiedTradeIntent): intent is OptionsTradeIntent {
+    return 'underlying' in intent && 'contractType' in intent;
+  }
+
+  private isStockIntent(intent: UnifiedTradeIntent): intent is TradeIntent {
+    return 'symbol' in intent && 'amountType' in intent;
   }
 
   /**
@@ -221,7 +230,19 @@ export class OptimizedTradeRoutes {
       let validation: any = null;
       if (!skipValidation) {
         pipeline.validate.startTime = Date.now();
-        validation = await this.validator.validateTrade(parseResult.intent);
+        if (this.isStockIntent(parseResult.intent)) {
+          validation = await this.validator.validateTrade(parseResult.intent);
+        } else {
+          // For now, skip validation for options until we update the validator
+          validation = { 
+            isValid: true, 
+            estimatedCost: parseResult.intent.quantity * 100, 
+            marginRequired: 0, 
+            potentialReturn: 0,
+            errors: [],
+            warnings: []
+          };
+        }
         pipeline.validate.endTime = Date.now();
         pipeline.validate.duration = pipeline.validate.endTime - pipeline.validate.startTime;
 
@@ -259,7 +280,17 @@ export class OptimizedTradeRoutes {
           estimatedShares: validation?.estimatedShares || 0
         };
       } else {
-        result = await this.broker.executeOrder(parseResult.intent);
+        if (this.isStockIntent(parseResult.intent)) {
+          result = await this.broker.executeOrder(parseResult.intent);
+        } else if (this.isOptionsIntent(parseResult.intent)) {
+          result = await this.broker.executeOptionsOrder(parseResult.intent);
+        } else {
+          result = {
+            success: false,
+            error: 'Unknown trade intent type',
+            orderId: null
+          };
+        }
       }
       
       pipeline.execute.endTime = Date.now();

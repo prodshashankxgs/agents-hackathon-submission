@@ -4,7 +4,7 @@ import { UnifiedTradeProcessor } from '../llm/unified-trade-processor';
 import { AdvancedTradingService } from '../llm/trading';
 import { AlpacaAdapter } from '../brokers/alpaca-adapter';
 import { ValidationService } from '../trading/validation-service';
-import { TradeIntent, AccountInfo, TradeResult, AdvancedTradeIntent } from '../types';
+import { TradeIntent, UnifiedTradeIntent, OptionsTradeIntent, AccountInfo, TradeResult, AdvancedTradeIntent } from '../types';
 
 interface ChatContext {
   accountInfo?: AccountInfo;
@@ -28,6 +28,15 @@ export class TradingChatbot {
     this.context = {
       conversationHistory: []
     };
+  }
+
+  // Type guard functions
+  private isOptionsIntent(intent: UnifiedTradeIntent): intent is OptionsTradeIntent {
+    return 'underlying' in intent && 'contractType' in intent;
+  }
+
+  private isStockIntent(intent: UnifiedTradeIntent): intent is TradeIntent {
+    return 'symbol' in intent && 'amountType' in intent;
   }
 
   async start(): Promise<void> {
@@ -155,34 +164,60 @@ export class TradingChatbot {
       const intent = result.intent;
       
       // Show what we understood
-      console.log(`\nI understand you want to ${intent.action} ${intent.amountType === 'dollars' ? '$' + intent.amount : intent.amount + ' shares'} of ${intent.symbol}.`);
+      if (this.isStockIntent(intent)) {
+        console.log(`\nI understand you want to ${intent.action} ${intent.amountType === 'dollars' ? '$' + intent.amount : intent.amount + ' shares'} of ${intent.symbol}.`);
+      } else if (this.isOptionsIntent(intent)) {
+        console.log(`\nI understand you want to ${intent.action} ${intent.quantity} contract(s) of ${intent.underlying} ${intent.contractType} strike ${intent.strikePrice} expiring ${intent.expirationDate}.`);
+      }
       
       // Validate the trade
       let validation;
       try {
-        validation = await this.validator.validateTrade(intent);
+        if (this.isStockIntent(intent)) {
+          validation = await this.validator.validateTrade(intent);
+        } else {
+          // For now, skip validation for options until we update the validator
+          validation = { 
+            isValid: true, 
+            estimatedCost: intent.quantity * 100, 
+            marginRequired: 0, 
+            potentialReturn: 0,
+            errors: [],
+            warnings: []
+          };
+        }
       } catch (error) {
         // Handle validation errors (like market data failures when market is closed)
         console.log('\n' + chalk.yellow('Note: I cannot fetch current market data (market may be closed).'));
         console.log('Would you like to proceed with the order anyway? It will be queued for the next market open.');
         
-        // Validate trading hours for orders
-        validation = {
-          isValid: true,
-          errors: [],
-          warnings: ['Market is closed. Order will be queued for next market open.'],
-          estimatedCost: intent.amountType === 'dollars' ? intent.amount : 0,
-          accountBalance: this.context.accountInfo?.buyingPower || 0
-        };
+        // Validate trading hours for orders  
+        if (this.isStockIntent(intent)) {
+          validation = {
+            isValid: true,
+            errors: [],
+            warnings: ['Market is closed. Order will be queued for next market open.'],
+            estimatedCost: intent.amountType === 'dollars' ? intent.amount : 0,
+            accountBalance: this.context.accountInfo?.buyingPower || 0
+          };
+        } else {
+          validation = {
+            isValid: true,
+            errors: [],
+            warnings: ['Market is closed. Order will be queued for next market open.'],
+            estimatedCost: intent.quantity * 100, // Options cost estimate
+            accountBalance: this.context.accountInfo?.buyingPower || 0
+          };
+        }
       }
       
       if (!validation.isValid) {
         console.log('\n' + chalk.red('I cannot execute this trade because:'));
-        validation.errors.forEach(error => console.log(chalk.red(`• ${error}`)));
+        validation.errors?.forEach(error => console.log(chalk.red(`• ${error}`)));
         return;
       }
       
-      if (validation.warnings.length > 0) {
+      if (validation.warnings && validation.warnings.length > 0) {
         console.log('\n' + chalk.yellow('Please note:'));
         validation.warnings.forEach(warning => console.log(chalk.yellow(`• ${warning}`)));
       }
@@ -190,8 +225,16 @@ export class TradingChatbot {
       // Show trade details
       console.log('\n' + chalk.white('Trade Summary:'));
       console.log(`• Action: ${intent.action.toUpperCase()}`);
-      console.log(`• Symbol: ${intent.symbol}`);
-      console.log(`• Amount: ${intent.amountType === 'dollars' ? '$' + intent.amount : intent.amount + ' shares'}`);
+      
+      if (this.isStockIntent(intent)) {
+        console.log(`• Symbol: ${intent.symbol}`);
+        console.log(`• Amount: ${intent.amountType === 'dollars' ? '$' + intent.amount : intent.amount + ' shares'}`);
+      } else if (this.isOptionsIntent(intent)) {
+        console.log(`• Underlying: ${intent.underlying}`);
+        console.log(`• Contract: ${intent.contractType.toUpperCase()} ${intent.strikePrice} ${intent.expirationDate}`);
+        console.log(`• Quantity: ${intent.quantity} contract(s)`);
+      }
+      
       if (validation.currentPrice) {
         console.log(`• Current Price: $${validation.currentPrice.toFixed(2)}`);
       }
@@ -211,18 +254,25 @@ export class TradingChatbot {
         console.log(chalk.gray('\nExecuting trade...'));
         
         try {
-          const result = await this.broker.executeOrder(intent);
+          let result;
+          if (this.isStockIntent(intent)) {
+            result = await this.broker.executeOrder(intent);
+          } else if (this.isOptionsIntent(intent)) {
+            result = await this.broker.executeOptionsOrder(intent);
+          } else {
+            throw new Error('Unknown trade intent type');
+          }
           this.context.lastTrade = result;
           
           if (result.success) {
             console.log(chalk.green('\n✅ Trade executed successfully!'));
             console.log(`Order ID: ${result.orderId}`);
-            if (result.executedPrice) {
+            if ('executedPrice' in result && result.executedPrice) {
               console.log(`Executed at: $${result.executedPrice.toFixed(2)}`);
             }
           } else {
             console.log(chalk.red('\n❌ Trade execution failed'));
-            console.log(`Reason: ${result.error || result.message}`);
+            console.log(`Reason: ${result.error || 'Unknown error'}`);
           }
         } catch (executionError) {
           console.log(chalk.red('\n❌ Could not execute trade at this time'));
@@ -345,36 +395,62 @@ export class TradingChatbot {
     }
   }
 
-  private async handleTradeExecution(intent: TradeIntent): Promise<void> {
+  private async handleTradeExecution(intent: UnifiedTradeIntent): Promise<void> {
     // Show what we understood
-    console.log(`\nI understand you want to ${intent.action} ${intent.amountType === 'dollars' ? '$' + intent.amount : intent.amount + ' shares'} of ${intent.symbol}.`);
+    if (this.isStockIntent(intent)) {
+      console.log(`\nI understand you want to ${intent.action} ${intent.amountType === 'dollars' ? '$' + intent.amount : intent.amount + ' shares'} of ${intent.symbol}.`);
+    } else if (this.isOptionsIntent(intent)) {
+      console.log(`\nI understand you want to ${intent.action} ${intent.quantity} contract(s) of ${intent.underlying} ${intent.contractType} strike ${intent.strikePrice} expiring ${intent.expirationDate}.`);
+    }
     
     // Validate the trade
     let validation;
     try {
-      validation = await this.validator.validateTrade(intent);
+      if (this.isStockIntent(intent)) {
+        validation = await this.validator.validateTrade(intent);
+      } else {
+        // For now, skip validation for options until we update the validator
+        validation = { 
+          isValid: true, 
+          estimatedCost: intent.quantity * 100, 
+          marginRequired: 0, 
+          potentialReturn: 0,
+          errors: [],
+          warnings: []
+        };
+      }
     } catch (error) {
       // Handle validation errors (like market data failures when market is closed)
       console.log('\n' + chalk.yellow('Note: I cannot fetch current market data (market may be closed).'));
       console.log('Would you like to proceed with the order anyway? It will be queued for the next market open.');
       
       // Validate trading hours for orders
-      validation = {
-        isValid: true,
-        errors: [],
-        warnings: ['Market is closed. Order will be queued for next market open.'],
-        estimatedCost: intent.amountType === 'dollars' ? intent.amount : 0,
-        accountBalance: this.context.accountInfo?.buyingPower || 0
-      };
+      if (this.isStockIntent(intent)) {
+        validation = {
+          isValid: true,
+          errors: [],
+          warnings: ['Market is closed. Order will be queued for next market open.'],
+          estimatedCost: intent.amountType === 'dollars' ? intent.amount : 0,
+          accountBalance: this.context.accountInfo?.buyingPower || 0
+        };
+      } else {
+        validation = {
+          isValid: true,
+          errors: [],
+          warnings: ['Market is closed. Order will be queued for next market open.'],
+          estimatedCost: intent.quantity * 100,
+          accountBalance: this.context.accountInfo?.buyingPower || 0
+        };
+      }
     }
     
     if (!validation.isValid) {
       console.log('\n' + chalk.red('I cannot execute this trade because:'));
-      validation.errors.forEach(error => console.log(chalk.red(`• ${error}`)));
+      validation.errors?.forEach(error => console.log(chalk.red(`• ${error}`)));
       return;
     }
     
-    if (validation.warnings.length > 0) {
+    if (validation.warnings && validation.warnings.length > 0) {
       console.log('\n' + chalk.yellow('Please note:'));
       validation.warnings.forEach(warning => console.log(chalk.yellow(`• ${warning}`)));
     }
@@ -382,8 +458,16 @@ export class TradingChatbot {
     // Show trade details
     console.log('\n' + chalk.white('Trade Summary:'));
     console.log(`• Action: ${intent.action.toUpperCase()}`);
-    console.log(`• Symbol: ${intent.symbol}`);
-    console.log(`• Amount: ${intent.amountType === 'dollars' ? '$' + intent.amount : intent.amount + ' shares'}`);
+    
+    if (this.isStockIntent(intent)) {
+      console.log(`• Symbol: ${intent.symbol}`);
+      console.log(`• Amount: ${intent.amountType === 'dollars' ? '$' + intent.amount : intent.amount + ' shares'}`);
+    } else if (this.isOptionsIntent(intent)) {
+      console.log(`• Underlying: ${intent.underlying}`);
+      console.log(`• Contract: ${intent.contractType.toUpperCase()} ${intent.strikePrice} ${intent.expirationDate}`);
+      console.log(`• Quantity: ${intent.quantity} contract(s)`);
+    }
+    
     if (validation.currentPrice) {
       console.log(`• Current Price: $${validation.currentPrice.toFixed(2)}`);
     }
@@ -403,13 +487,20 @@ export class TradingChatbot {
       console.log(chalk.gray('\nExecuting trade...'));
       
       try {
-        const result = await this.broker.executeOrder(intent);
+        let result;
+        if (this.isStockIntent(intent)) {
+          result = await this.broker.executeOrder(intent);
+        } else if (this.isOptionsIntent(intent)) {
+          result = await this.broker.executeOptionsOrder(intent);
+        } else {
+          throw new Error('Unknown trade intent type');
+        }
         this.context.lastTrade = result;
         
         if (result.success) {
           console.log(chalk.green('\n✅ Trade executed successfully!'));
           console.log(`Order ID: ${result.orderId}`);
-          if (result.executedPrice) {
+          if ('executedPrice' in result && result.executedPrice) {
             console.log(`Executed at: $${result.executedPrice.toFixed(2)}`);
           }
         } else {

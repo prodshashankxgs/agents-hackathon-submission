@@ -8,7 +8,7 @@ import { AlpacaAdapter } from './brokers/alpaca-adapter';
 import { ValidationService } from './trading/validation-service';
 import { BasketStorageService } from './storage/basket-storage';
 import { TradeIntent, CLIOptions, TradingError } from './types';
-import { brokerLimiter } from './utils/concurrency-limiter';
+// import { brokerLimiter } from './utils/concurrency-limiter';
 import { performanceMiddleware, performanceMonitor } from './utils/performance-monitor';
 import { optimizedParsingService } from './parsing/parsing-service';
 

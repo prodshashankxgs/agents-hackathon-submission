@@ -8,12 +8,23 @@ import {
   AccountInfo, 
   MarketData,
   Position,
-  BrokerError 
+  BrokerError,
+  // Options types
+  OptionsBrokerAdapter,
+  OptionsTradeIntent,
+  OptionsValidation,
+  OptionsTradeResult,
+  OptionsChain,
+  OptionsPosition,
+  OptionQuote,
+  GreeksCalculation,
+  OptionsMarketData,
+  OptionContract
 } from '../types';
 import { config } from '../config';
 import { cacheService } from '../cache/cache-service';
 
-export class AlpacaAdapter implements BrokerAdapter {
+export class AlpacaAdapter implements OptionsBrokerAdapter {
   private alpaca: Alpaca;
 
   constructor() {
@@ -24,6 +35,8 @@ export class AlpacaAdapter implements BrokerAdapter {
       paper: config.alpacaBaseUrl.includes('paper')
     });
   }
+
+  // ===== EXISTING STOCK METHODS =====
 
   async validateOrder(order: TradeIntent): Promise<TradeValidation> {
     try {
@@ -623,16 +636,574 @@ export class AlpacaAdapter implements BrokerAdapter {
       case 'filled':
         return `Order filled at $${order.filled_avg_price} for ${order.filled_qty} shares`;
       case 'partially_filled':
-        return `Order partially filled: ${order.filled_qty} of ${order.qty} shares at $${order.filled_avg_price}`;
-      case 'pending_new':
-      case 'accepted':
-        return 'Order accepted and pending execution';
-      case 'rejected':
-        return 'Order rejected by broker';
+        return `Order partially filled: ${order.filled_qty}/${order.qty} shares at $${order.filled_avg_price}`;
+      case 'pending':
+        return 'Order pending execution';
       case 'canceled':
         return 'Order canceled';
       default:
         return `Order status: ${order.status}`;
     }
+  }
+
+  // ===== OPTIONS TRADING METHODS =====
+
+  async validateOptionsOrder(order: OptionsTradeIntent): Promise<OptionsValidation> {
+    try {
+      const account = await this.alpaca.getAccount();
+      const buyingPower = parseFloat(account.buying_power);
+      const dayTradingBuyingPower = parseFloat(account.day_trading_buying_power || '0');
+      
+      const errors: string[] = [];
+      const warnings: string[] = [];
+      
+      // Basic validations
+      if (order.quantity <= 0) {
+        errors.push('Option quantity must be positive');
+      }
+      
+      if (order.strikePrice <= 0) {
+        errors.push('Strike price must be positive');
+      }
+      
+      // Validate expiration date
+      const expirationDate = new Date(order.expirationDate);
+      const now = new Date();
+      if (expirationDate <= now) {
+        errors.push('Expiration date must be in the future');
+      }
+      
+      // Calculate time to expiration
+      const daysToExpiration = Math.ceil((expirationDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      
+      if (daysToExpiration < 1) {
+        warnings.push('Option expires within 24 hours');
+      }
+      
+      // Estimate costs and requirements
+      let estimatedCost = 0;
+      let estimatedCollateral = 0;
+      let marginRequirement = 0;
+      let maxProfit = 0;
+      let maxLoss = 0;
+      let breakeven: number[] = [];
+      let probabilityOfProfit = 0;
+      
+      // For opening positions, estimate cost based on typical option pricing
+      if (order.action === 'buy_to_open') {
+        // Estimate premium based on moneyness and time
+        const underlyingPrice = order.strikePrice; // Simplified - would get real price
+        const intrinsicValue = Math.max(0, 
+          order.contractType === 'call' 
+            ? underlyingPrice - order.strikePrice 
+            : order.strikePrice - underlyingPrice
+        );
+        const timeValue = Math.max(1, daysToExpiration * 0.1); // Simplified time value
+        const estimatedPremium = intrinsicValue + timeValue;
+        
+        estimatedCost = estimatedPremium * order.quantity * 100; // 100 shares per contract
+        maxLoss = estimatedCost;
+        maxProfit = order.contractType === 'call' ? Number.POSITIVE_INFINITY : order.strikePrice * order.quantity * 100;
+        breakeven = [order.strikePrice + (estimatedPremium * (order.contractType === 'call' ? 1 : -1))];
+        probabilityOfProfit = 0.5; // Simplified probability
+      } else if (order.action === 'sell_to_open') {
+        // Selling options requires collateral
+        if (order.contractType === 'put') {
+          estimatedCollateral = order.strikePrice * order.quantity * 100; // Cash secured put
+          marginRequirement = estimatedCollateral;
+        } else {
+          // Naked call - high margin requirement
+          marginRequirement = order.strikePrice * order.quantity * 100 * 0.2; // Simplified margin calc
+        }
+      }
+      
+      // Check buying power
+      if (estimatedCost > buyingPower) {
+        errors.push(`Insufficient buying power. Required: $${estimatedCost.toFixed(2)}, Available: $${buyingPower.toFixed(2)}`);
+      }
+      
+      if (marginRequirement > buyingPower) {
+        errors.push(`Insufficient margin. Required: $${marginRequirement.toFixed(2)}, Available: $${buyingPower.toFixed(2)}`);
+      }
+      
+      // Options-specific warnings
+      if (order.orderType === 'market') {
+        warnings.push('Market orders for options may experience significant slippage. Consider using limit orders.');
+      }
+      
+      if (daysToExpiration <= 7) {
+        warnings.push('Option expires within one week. Time decay will accelerate.');
+      }
+      
+      return {
+        isValid: errors.length === 0,
+        errors,
+        warnings,
+        estimatedCost,
+        estimatedCollateral,
+        marginRequirement,
+        accountBalance: parseFloat(account.equity || '0'),
+        buyingPower,
+        maxProfit,
+        maxLoss,
+        breakeven,
+        probabilityOfProfit
+      };
+    } catch (error) {
+      throw new BrokerError(`Failed to validate options order: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async executeOptionsOrder(order: OptionsTradeIntent): Promise<OptionsTradeResult> {
+    try {
+      // Create option symbol in Alpaca format
+      const expirationDate = new Date(order.expirationDate);
+      const year = expirationDate.getFullYear().toString().slice(-2);
+      const month = (expirationDate.getMonth() + 1).toString().padStart(2, '0');
+      const day = expirationDate.getDate().toString().padStart(2, '0');
+      const contractTypeChar = order.contractType === 'call' ? 'C' : 'P';
+      const strikeStr = (order.strikePrice * 1000).toString().padStart(8, '0');
+      
+      const optionSymbol = `${order.underlying}${year}${month}${day}${contractTypeChar}${strikeStr}`;
+      
+      // Map our action to Alpaca's side and position intent
+      let side: 'buy' | 'sell';
+      let positionIntent: string;
+      
+      switch (order.action) {
+        case 'buy_to_open':
+          side = 'buy';
+          positionIntent = 'buy_to_open';
+          break;
+        case 'sell_to_open':
+          side = 'sell';
+          positionIntent = 'sell_to_open';
+          break;
+        case 'buy_to_close':
+          side = 'buy';
+          positionIntent = 'buy_to_close';
+          break;
+        case 'sell_to_close':
+          side = 'sell';
+          positionIntent = 'sell_to_close';
+          break;
+        default:
+          throw new BrokerError(`Invalid options action: ${order.action}`);
+      }
+      
+      // Prepare order data
+      const orderData: any = {
+        symbol: optionSymbol,
+        qty: order.quantity.toString(),
+        side,
+        type: order.orderType,
+        time_in_force: 'day',
+        position_intent: positionIntent
+      };
+      
+      if (order.orderType === 'limit' && order.limitPrice) {
+        orderData.limit_price = order.limitPrice.toString();
+      }
+      
+      // Submit order to Alpaca
+      const alpacaOrder = await this.alpaca.createOrder(orderData);
+      
+      // Parse response
+      const success = alpacaOrder && ['new', 'accepted', 'pending_new'].includes(alpacaOrder.status);
+      
+      const contract: OptionContract = {
+        symbol: order.underlying,
+        optionSymbol: optionSymbol,
+        contractType: order.contractType,
+        strikePrice: order.strikePrice,
+        expirationDate: order.expirationDate,
+        multiplier: 100,
+        exchange: 'OPRA',
+        underlying: order.underlying
+      };
+      
+              return {
+          success,
+          orderId: alpacaOrder?.id,
+          strategy: order.strategy || 'single_leg',
+          legs: [{
+            contract,
+            executedPrice: parseFloat(alpacaOrder?.filled_avg_price || '0'),
+            executedQuantity: parseInt(alpacaOrder?.filled_qty || '0')
+          }],
+          totalCost: parseFloat(alpacaOrder?.filled_avg_price || '0') * order.quantity * 100,
+          timestamp: new Date(),
+          message: success ? 'Options order submitted successfully' : 'Options order failed',
+          ...(success ? {} : { error: 'Order submission failed' })
+        };
+    } catch (error) {
+      throw new BrokerError(`Failed to execute options order: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async getOptionsChain(symbol: string, expirationDate?: string): Promise<OptionsChain> {
+    try {
+      // Use Alpaca's options data endpoint
+      const baseUrl = config.alpacaBaseUrl.includes('paper') 
+        ? 'https://data.alpaca.markets'
+        : 'https://data.alpaca.markets';
+      
+      const url = `${baseUrl}/v1beta1/options/snapshots/${symbol}`;
+      const params = new URLSearchParams({
+        feed: 'indicative'
+      });
+      
+      if (expirationDate) {
+        params.append('expiration_date', expirationDate);
+      }
+      
+      const response = await fetch(`${url}?${params}`, {
+        headers: {
+          'APCA-API-KEY-ID': config.alpacaApiKey,
+          'APCA-API-SECRET-KEY': config.alpacaSecretKey
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Options chain request failed: ${response.status}`);
+      }
+      
+              const data: any = await response.json();
+        
+        // Get underlying price
+        const underlyingData = await this.getMarketData(symbol);
+      
+      // Transform response to our format
+      const chains: { [expirationDate: string]: { calls: OptionQuote[]; puts: OptionQuote[] } } = {};
+      const expirationDates: string[] = [];
+      
+      if (data.option_snapshots) {
+        for (const [optionSymbol, snapshot] of Object.entries(data.option_snapshots)) {
+          const contract = this.parseOptionSymbol(optionSymbol as string);
+          if (!contract) continue;
+          
+          const expDate = contract.expirationDate;
+          if (!chains[expDate]) {
+            chains[expDate] = { calls: [], puts: [] };
+            expirationDates.push(expDate);
+          }
+          
+          const quote: OptionQuote = {
+            contract,
+            bid: (snapshot as any).latest_quote?.bid || 0,
+            ask: (snapshot as any).latest_quote?.ask || 0,
+            lastPrice: (snapshot as any).latest_trade?.price || 0,
+            volume: (snapshot as any).latest_trade?.size || 0,
+            openInterest: (snapshot as any).open_interest || 0,
+            impliedVolatility: (snapshot as any).implied_volatility || 0,
+            intrinsicValue: Math.max(0, 
+              contract.contractType === 'call' 
+                ? underlyingData.currentPrice - contract.strikePrice
+                : contract.strikePrice - underlyingData.currentPrice
+            ),
+            timeValue: (snapshot as any).latest_trade?.price || 0,
+            inTheMoney: contract.contractType === 'call' 
+              ? underlyingData.currentPrice > contract.strikePrice
+              : underlyingData.currentPrice < contract.strikePrice
+          };
+          
+          if (contract.contractType === 'call') {
+            chains[expDate].calls.push(quote);
+          } else {
+            chains[expDate].puts.push(quote);
+          }
+        }
+      }
+      
+      return {
+        symbol,
+        underlyingPrice: underlyingData.currentPrice,
+        expirationDates: expirationDates.sort(),
+        chains
+      };
+    } catch (error) {
+      throw new BrokerError(`Failed to get options chain: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async getOptionsPositions(): Promise<OptionsPosition[]> {
+    try {
+      const positions = await this.alpaca.getPositions();
+      const optionsPositions: OptionsPosition[] = [];
+      
+      for (const position of positions) {
+        // Check if this is an options position
+        if (this.isOptionSymbol(position.symbol)) {
+          const contract = this.parseOptionSymbol(position.symbol);
+          if (!contract) continue;
+          
+          const daysToExpiration = Math.ceil(
+            (new Date(contract.expirationDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+          );
+          
+          optionsPositions.push({
+            id: position.asset_id,
+            underlying: contract.underlying,
+            legs: [{
+              action: parseFloat(position.qty) > 0 ? 'buy_to_open' : 'sell_to_open',
+              contract,
+              quantity: Math.abs(parseFloat(position.qty)),
+              price: parseFloat(position.avg_entry_price || '0'),
+              side: parseFloat(position.qty) > 0 ? 'long' : 'short'
+            }],
+            strategy: 'single_leg',
+            openDate: new Date(), // Would need to track this separately
+            quantity: Math.abs(parseFloat(position.qty)),
+            costBasis: parseFloat(position.cost_basis || '0'),
+            currentValue: parseFloat(position.market_value || '0'),
+            unrealizedPnL: parseFloat(position.unrealized_pl || '0'),
+            dayChange: parseFloat(position.unrealized_intraday_pl || '0'),
+            dayChangePercent: parseFloat(position.unrealized_intraday_plpc || '0') * 100,
+            greeks: {
+              delta: 0, // Would need to calculate or fetch
+              gamma: 0,
+              theta: 0,
+              vega: 0,
+              rho: 0
+            },
+            daysToExpiration,
+            status: daysToExpiration > 0 ? 'open' : 'expired'
+          });
+        }
+      }
+      
+      return optionsPositions;
+    } catch (error) {
+      throw new BrokerError(`Failed to get options positions: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async getOptionsQuote(optionSymbol: string): Promise<OptionQuote> {
+    try {
+      const contract = this.parseOptionSymbol(optionSymbol);
+      if (!contract) {
+        throw new BrokerError(`Invalid option symbol: ${optionSymbol}`);
+      }
+      
+      const baseUrl = 'https://data.alpaca.markets';
+      const url = `${baseUrl}/v1beta1/options/quotes/latest`;
+      
+      const response = await fetch(`${url}?symbols=${optionSymbol}`, {
+        headers: {
+          'APCA-API-KEY-ID': config.alpacaApiKey,
+          'APCA-API-SECRET-KEY': config.alpacaSecretKey
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Options quote request failed: ${response.status}`);
+      }
+      
+              const data: any = await response.json();
+        const quote = data.quotes?.[optionSymbol];
+      
+      if (!quote) {
+        throw new BrokerError(`No quote data available for ${optionSymbol}`);
+      }
+      
+      // Get underlying price for intrinsic value calculation
+      const underlyingData = await this.getMarketData(contract.underlying);
+      
+      return {
+        contract,
+        bid: quote.bid || 0,
+        ask: quote.ask || 0,
+        lastPrice: quote.last_price || 0,
+        volume: quote.volume || 0,
+        openInterest: 0, // Not in quote data
+        impliedVolatility: 0, // Not in quote data
+        intrinsicValue: Math.max(0, 
+          contract.contractType === 'call' 
+            ? underlyingData.currentPrice - contract.strikePrice
+            : contract.strikePrice - underlyingData.currentPrice
+        ),
+        timeValue: (quote.last_price || 0) - Math.max(0, 
+          contract.contractType === 'call' 
+            ? underlyingData.currentPrice - contract.strikePrice
+            : contract.strikePrice - underlyingData.currentPrice
+        ),
+        inTheMoney: contract.contractType === 'call' 
+          ? underlyingData.currentPrice > contract.strikePrice
+          : underlyingData.currentPrice < contract.strikePrice
+      };
+    } catch (error) {
+      throw new BrokerError(`Failed to get options quote: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async calculateGreeks(
+    contract: OptionContract, 
+    underlyingPrice: number, 
+    volatility: number, 
+    riskFreeRate: number
+  ): Promise<GreeksCalculation> {
+    // Simplified Black-Scholes Greeks calculation
+    // In production, you'd want to use a proper options pricing library
+    try {
+      const timeToExpiration = (new Date(contract.expirationDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 365);
+      const strike = contract.strikePrice;
+      const spot = underlyingPrice;
+      const rate = riskFreeRate;
+      const vol = volatility;
+      
+      if (timeToExpiration <= 0) {
+        return { delta: 0, gamma: 0, theta: 0, vega: 0, rho: 0 };
+      }
+      
+      // Standard normal cumulative distribution function (simplified)
+      const normalCDF = (x: number) => 0.5 * (1 + this.erf(x / Math.sqrt(2)));
+      const normalPDF = (x: number) => Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+      
+      const d1 = (Math.log(spot / strike) + (rate + 0.5 * vol * vol) * timeToExpiration) / (vol * Math.sqrt(timeToExpiration));
+      const d2 = d1 - vol * Math.sqrt(timeToExpiration);
+      
+      let delta, gamma, theta, vega, rho;
+      
+      if (contract.contractType === 'call') {
+        delta = normalCDF(d1);
+        gamma = normalPDF(d1) / (spot * vol * Math.sqrt(timeToExpiration));
+        theta = -(spot * normalPDF(d1) * vol) / (2 * Math.sqrt(timeToExpiration)) - rate * strike * Math.exp(-rate * timeToExpiration) * normalCDF(d2);
+        vega = spot * normalPDF(d1) * Math.sqrt(timeToExpiration);
+        rho = strike * timeToExpiration * Math.exp(-rate * timeToExpiration) * normalCDF(d2);
+      } else {
+        delta = normalCDF(d1) - 1;
+        gamma = normalPDF(d1) / (spot * vol * Math.sqrt(timeToExpiration));
+        theta = -(spot * normalPDF(d1) * vol) / (2 * Math.sqrt(timeToExpiration)) + rate * strike * Math.exp(-rate * timeToExpiration) * normalCDF(-d2);
+        vega = spot * normalPDF(d1) * Math.sqrt(timeToExpiration);
+        rho = -strike * timeToExpiration * Math.exp(-rate * timeToExpiration) * normalCDF(-d2);
+      }
+      
+      return {
+        delta: delta || 0,
+        gamma: gamma || 0,
+        theta: (theta || 0) / 365, // Convert to daily theta
+        vega: (vega || 0) / 100, // Convert to percentage
+        rho: (rho || 0) / 100 // Convert to percentage
+      };
+    } catch (error) {
+      throw new BrokerError(`Failed to calculate Greeks: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async getOptionsMarketData(symbol: string): Promise<OptionsMarketData> {
+    try {
+      const marketData = await this.getMarketData(symbol);
+      
+      // Get options data for volatility calculation
+      const baseUrl = 'https://data.alpaca.markets';
+      const url = `${baseUrl}/v1beta1/options/snapshots/${symbol}`;
+      
+      const response = await fetch(`${url}?feed=indicative`, {
+        headers: {
+          'APCA-API-KEY-ID': config.alpacaApiKey,
+          'APCA-API-SECRET-KEY': config.alpacaSecretKey
+        }
+      });
+      
+      let impliedVolatility = 0;
+      let volume = 0;
+      let openInterest = 0;
+      
+              if (response.ok) {
+          const data: any = await response.json();
+          if (data.option_snapshots) {
+          // Calculate average implied volatility from options chain
+          const volatilities: number[] = [];
+          let totalVolume = 0;
+          let totalOpenInterest = 0;
+          
+          for (const snapshot of Object.values(data.option_snapshots)) {
+            const s = snapshot as any;
+            if (s.implied_volatility) volatilities.push(s.implied_volatility);
+            if (s.latest_trade?.size) totalVolume += s.latest_trade.size;
+            if (s.open_interest) totalOpenInterest += s.open_interest;
+          }
+          
+          impliedVolatility = volatilities.length > 0 
+            ? volatilities.reduce((a, b) => a + b, 0) / volatilities.length 
+            : 0;
+          volume = totalVolume;
+          openInterest = totalOpenInterest;
+        }
+      }
+      
+      return {
+        underlying: symbol,
+        underlyingPrice: marketData.currentPrice,
+        impliedVolatility,
+        historicalVolatility: 0, // Would need historical data calculation
+        volume,
+        openInterest,
+        lastUpdated: new Date()
+      };
+    } catch (error) {
+      throw new BrokerError(`Failed to get options market data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  // ===== HELPER METHODS =====
+
+  private isOptionSymbol(symbol: string): boolean {
+    // Alpaca option symbols follow the format: SYMBOL + YYMMDD + C/P + Strike price
+    return /^[A-Z]+\d{6}[CP]\d{8}$/.test(symbol);
+  }
+
+  private parseOptionSymbol(optionSymbol: string): OptionContract | null {
+    try {
+      // Parse Alpaca option symbol format: SYMBOLYYMMDDCPPPPPPPP
+      const match = optionSymbol.match(/^([A-Z]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/);
+      if (!match) return null;
+      
+      const [, underlying, year, month, day, contractTypeChar, strikeStr] = match;
+      
+      if (!underlying || !year || !month || !day || !contractTypeChar || !strikeStr) {
+        return null;
+      }
+      
+      const expirationDate = new Date(2000 + parseInt(year), parseInt(month) - 1, parseInt(day));
+      const contractType = contractTypeChar === 'C' ? 'call' : 'put';
+      const strikePrice = parseInt(strikeStr) / 1000;
+      
+      const formattedDate = expirationDate.toISOString().split('T')[0];
+      if (!formattedDate) {
+        return null;
+      }
+      
+      return {
+        symbol: underlying,
+        optionSymbol,
+        contractType,
+        strikePrice,
+        expirationDate: formattedDate,
+        multiplier: 100,
+        exchange: 'OPRA',
+        underlying: underlying
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  // Error function approximation for normal distribution
+  private erf(x: number): number {
+    const a1 =  0.254829592;
+    const a2 = -0.284496736;
+    const a3 =  1.421413741;
+    const a4 = -1.453152027;
+    const a5 =  1.061405429;
+    const p  =  0.3275911;
+
+    const sign = x >= 0 ? 1 : -1;
+    x = Math.abs(x);
+
+    const t = 1.0 / (1.0 + p * x);
+    const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+
+    return sign * y;
   }
 } 

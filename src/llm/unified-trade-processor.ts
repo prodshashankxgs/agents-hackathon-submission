@@ -1,18 +1,19 @@
-import OpenAI from 'openai';
+import
+  OpenAI from 'openai';
 import { config } from '../config';
 import { z } from 'zod';
-import { TradeIntent, TradeIntentSchema, LLMError } from '../types';
+import { TradeIntent, TradeIntentSchema, LLMError, OptionsTradeIntent, OptionsTradeIntentSchema, UnifiedTradeIntent } from '../types';
 
 /**
  * Unified LLM Trade Processor
  * 
  * Replaces the multi-tier parsing approach with a single, optimized
- * GPT-4o-mini based system that handles all buy/sell command processing
- * efficiently and accurately.
+ * GPT-4o-mini-based system that handles all buy/sell command processing
+ * efficiently and accurately. Now supports both stocks and options trading.
  */
 export class UnifiedTradeProcessor {
   private openai: OpenAI;
-  private cache: Map<string, { intent: TradeIntent; timestamp: number }> = new Map();
+  private cache: Map<string, { intent: UnifiedTradeIntent; timestamp: number }> = new Map();
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
   constructor() {
@@ -23,30 +24,43 @@ export class UnifiedTradeProcessor {
 
   /**
    * Process any natural language trading command with optimal efficiency
+   * Supports both stocks and options trading
    */
   async processTradeCommand(input: string): Promise<{
-    intent: TradeIntent;
+    intent: UnifiedTradeIntent;
     confidence: number;
     processingTime: number;
     cached: boolean;
+    tradeType: 'stock' | 'option';
   }> {
+    
     const startTime = Date.now();
     const normalizedInput = this.normalizeInput(input);
     const cacheKey = this.createCacheKey(normalizedInput);
 
-    // Check cache first for repeated commands
+    // Check the cache first for repeated commands
     const cached = this.getFromCache(cacheKey);
     if (cached) {
       return {
         intent: cached,
         confidence: 1.0,
         processingTime: Date.now() - startTime,
-        cached: true
+        cached: true,
+        tradeType: this.isOptionsIntent(cached) ? 'option' : 'stock'
       };
     }
 
     try {
-      const intent = await this.parseWithLLM(normalizedInput);
+      // Determine if this is likely an options command
+      const isLikelyOptions = this.detectOptionsIntent(normalizedInput);
+      
+      let intent: UnifiedTradeIntent;
+      
+      if (isLikelyOptions) {
+        intent = await this.parseOptionsWithLLM(normalizedInput);
+      } else {
+        intent = await this.parseWithLLM(normalizedInput);
+      }
       
       // Cache successful parse
       this.setCache(cacheKey, intent);
@@ -55,7 +69,8 @@ export class UnifiedTradeProcessor {
         intent,
         confidence: 0.95,
         processingTime: Date.now() - startTime,
-        cached: false
+        cached: false,
+        tradeType: this.isOptionsIntent(intent) ? 'option' : 'stock'
       };
     } catch (error) {
       throw new LLMError('Failed to process trade command', {
@@ -69,7 +84,7 @@ export class UnifiedTradeProcessor {
   /**
    * Optimized LLM parsing with enhanced system prompt
    */
-  private async parseWithLLM(input: string): Promise<TradeIntent> {
+  private async parseWithLLM(input: string): Promise<UnifiedTradeIntent> {
     const tools: OpenAI.ChatCompletionTool[] = [{
       type: 'function',
       function: {
@@ -180,6 +195,188 @@ Be precise but flexible. Always extract the most likely intent.`
   }
 
   /**
+   * Parse options trading commands with LLM
+   */
+  private async parseOptionsWithLLM(input: string): Promise<OptionsTradeIntent> {
+    const tools: OpenAI.ChatCompletionTool[] = [{
+      type: 'function',
+      function: {
+        name: 'execute_options_trade',
+        description: 'Execute an options trade based on user input',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: {
+              type: 'string',
+              enum: ['buy_to_open', 'sell_to_open', 'buy_to_close', 'sell_to_close'],
+              description: 'The options action: buy_to_open (open long position), sell_to_open (open short position), buy_to_close (close short position), sell_to_close (close long position)'
+            },
+            underlying: {
+              type: 'string',
+              pattern: '^[A-Z]{1,5}$',
+              description: 'The underlying stock ticker symbol (e.g., AAPL, MSFT, GOOGL)'
+            },
+            contract_type: {
+              type: 'string',
+              enum: ['call', 'put'],
+              description: 'The type of option contract'
+            },
+            strike_price: {
+              type: 'number',
+              minimum: 0.01,
+              description: 'The strike price of the option'
+            },
+            expiration_date: {
+              type: 'string',
+              pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+              description: 'The expiration date in YYYY-MM-DD format'
+            },
+            quantity: {
+              type: 'number',
+              minimum: 1,
+              description: 'The number of option contracts'
+            },
+            order_type: {
+              type: 'string',
+              enum: ['market', 'limit'],
+              default: 'market',
+              description: 'The type of order to place'
+            },
+            limit_price: {
+              type: 'number',
+              minimum: 0.01,
+              description: 'The limit price for limit orders (required if order_type is limit)'
+            },
+            strategy: {
+              type: 'string',
+              enum: ['single_leg', 'covered_call', 'cash_secured_put', 'protective_put', 'collar', 'iron_condor', 'butterfly', 'straddle', 'strangle'],
+              default: 'single_leg',
+              description: 'The options strategy being implemented'
+            }
+          },
+          required: ['action', 'underlying', 'contract_type', 'strike_price', 'expiration_date', 'quantity']
+        }
+      }
+    }];
+
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{
+        role: 'system',
+        content: `You are an expert options trading command parser. Convert natural language to structured options trade parameters using the execute_options_trade function.
+
+PARSING RULES FOR OPTIONS:
+
+1. Underlying Symbols: Accept company names or tickers. Convert to uppercase ticker symbols.
+   - Common mappings: Apple→AAPL, Microsoft→MSFT, Google→GOOGL, Tesla→TSLA, Amazon→AMZN
+
+2. Options Actions: Identify the specific options action from context
+   - Opening long positions: "buy", "buy to open", "long", "purchase" → buy_to_open
+   - Opening short positions: "sell", "sell to open", "short", "write" → sell_to_open  
+   - Closing long positions: "sell to close", "close long", "exit long" → sell_to_close
+   - Closing short positions: "buy to close", "close short", "cover" → buy_to_close
+
+3. Contract Types: Identify call or put options
+   - Calls: "call", "call option", bullish sentiment
+   - Puts: "put", "put option", bearish sentiment
+
+4. Strike Prices: Extract numerical strike price
+   - "$150 strike", "150 strike", "strike 150" → 150
+   - Handle decimals: "$150.50 strike" → 150.50
+
+5. Expiration Dates: Parse various date formats
+   - "January 15, 2024" → 2024-01-15
+   - "Jan 15" → current year, 2024-01-15
+   - "15 Jan 2024" → 2024-01-15
+   - "next Friday" → calculate next Friday's date
+   - "weekly" or "0DTE" → nearest Friday
+   - "monthly" → third Friday of next month
+
+6. Quantity: Default to 1 contract if not specified
+   - "10 contracts", "10 options" → 10
+   - No quantity specified → 1
+
+7. Order Types: Default to market unless limit price specified
+   - "at $5", "limit $5", "for $5" → limit order with limit_price: 5
+
+8. Common Options Strategies:
+   - "covered call" → sell_to_open call + indicate strategy
+   - "cash secured put" → sell_to_open put + indicate strategy
+   - "protective put" → buy_to_open put + indicate strategy
+
+Handle natural language variations and be intelligent about context.
+
+Examples:
+- "Buy AAPL 150 call expiring next Friday" → buy_to_open AAPL call, strike 150, next Friday
+- "Sell to open TSLA 250 put for January 15" → sell_to_open TSLA put, strike 250, 2024-01-15
+- "Close my MSFT 300 call position" → sell_to_close MSFT call, strike 300`
+      }, {
+        role: 'user',
+        content: input
+      }],
+      tools,
+      tool_choice: { type: 'function', function: { name: 'execute_options_trade' } },
+      temperature: 0.1,
+      max_tokens: 500
+    });
+
+    const message = response.choices[0]?.message;
+    
+    if (!message?.tool_calls?.[0]) {
+      throw new LLMError('Unable to parse options command - please specify action, underlying, contract type, strike, and expiration clearly');
+    }
+
+    const toolCall = message.tool_calls[0];
+    const args = JSON.parse(toolCall.function.arguments);
+
+    // Validate and transform the response
+    try {
+      const optionsIntent: OptionsTradeIntent = {
+        action: args.action,
+        underlying: args.underlying?.toUpperCase(),
+        contractType: args.contract_type,
+        strikePrice: args.strike_price,
+        expirationDate: args.expiration_date,
+        quantity: args.quantity,
+        orderType: args.order_type || 'market',
+        limitPrice: args.limit_price,
+        strategy: args.strategy || 'single_leg'
+      };
+
+      // Validate using Zod schema
+      const validated = OptionsTradeIntentSchema.parse(optionsIntent);
+      return validated;
+    } catch (validationError) {
+      throw new LLMError('Invalid options trade parameters extracted from command', {
+        extractedArgs: args,
+        validationError: validationError instanceof Error ? validationError.message : 'Unknown validation error'
+      });
+    }
+  }
+
+  /**
+   * Detect if input is likely referring to options trading
+   */
+  private detectOptionsIntent(input: string): boolean {
+    const optionsKeywords = [
+      'call', 'put', 'option', 'strike', 'expiration', 'expiry', 'exp',
+      'buy to open', 'sell to open', 'buy to close', 'sell to close',
+      'covered call', 'cash secured put', 'protective put', 'collar',
+      'iron condor', 'butterfly', 'straddle', 'strangle', 'spread'
+    ];
+    
+    const lowerInput = input.toLowerCase();
+    return optionsKeywords.some(keyword => lowerInput.includes(keyword));
+  }
+
+  /**
+   * Check if an intent is an options intent
+   */
+  private isOptionsIntent(intent: UnifiedTradeIntent): boolean {
+    return 'contractType' in intent;
+  }
+
+  /**
    * Validate business rules for trades
    */
   private validateBusinessRules(intent: TradeIntent): void {
@@ -232,7 +429,7 @@ Be precise but flexible. Always extract the most likely intent.`
   /**
    * Get from cache if not expired
    */
-  private getFromCache(key: string): TradeIntent | null {
+  private getFromCache(key: string): UnifiedTradeIntent | null {
     const cached = this.cache.get(key);
     if (!cached) return null;
 
@@ -247,7 +444,7 @@ Be precise but flexible. Always extract the most likely intent.`
   /**
    * Set cache with timestamp
    */
-  private setCache(key: string, intent: TradeIntent): void {
+  private setCache(key: string, intent: UnifiedTradeIntent): void {
     this.cache.set(key, {
       intent,
       timestamp: Date.now()
@@ -274,16 +471,27 @@ Be precise but flexible. Always extract the most likely intent.`
   /**
    * Generate human-readable summary of trade intent
    */
-  generateTradeSummary(intent: TradeIntent): string {
-    const amountStr = intent.amountType === 'dollars' 
-      ? `$${intent.amount}` 
-      : `${intent.amount} shares`;
-    
-    const orderTypeStr = intent.orderType === 'limit' 
-      ? ` at limit price $${intent.limitPrice}` 
-      : ' at market price';
+  generateTradeSummary(intent: UnifiedTradeIntent): string {
+    if (this.isOptionsIntent(intent)) {
+      const optionsIntent = intent as OptionsTradeIntent;
+      const quantityStr = optionsIntent.quantity > 1 ? `${optionsIntent.quantity} contracts` : '1 contract';
+      const orderTypeStr = optionsIntent.orderType === 'limit' 
+        ? ` at limit price $${optionsIntent.limitPrice}` 
+        : ' at market price';
 
-    return `${intent.action.toUpperCase()} ${amountStr} of ${intent.symbol}${orderTypeStr}`;
+      return `${optionsIntent.action.toUpperCase()} ${quantityStr} of ${optionsIntent.underlying} ${optionsIntent.contractType.toUpperCase()} ${optionsIntent.strikePrice} expiring ${optionsIntent.expirationDate}${orderTypeStr}`;
+    } else {
+      const stockIntent = intent as TradeIntent;
+      const amountStr = stockIntent.amountType === 'dollars' 
+        ? `$${stockIntent.amount}` 
+        : `${stockIntent.amount} shares`;
+      
+      const orderTypeStr = stockIntent.orderType === 'limit' 
+        ? ` at limit price $${stockIntent.limitPrice}` 
+        : ' at market price';
+
+      return `${stockIntent.action.toUpperCase()} ${amountStr} of ${stockIntent.symbol}${orderTypeStr}`;
+    }
   }
 
   /**
@@ -291,7 +499,7 @@ Be precise but flexible. Always extract the most likely intent.`
    */
   async batchProcessCommands(inputs: string[]): Promise<Array<{
     input: string;
-    intent?: TradeIntent;
+    intent?: UnifiedTradeIntent;
     error?: string;
     processingTime: number;
   }>> {
