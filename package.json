@@ -6,7 +6,8 @@
   "bin": {
     "nltrade": "dist/index.js",
     "nltrade-enhanced": "dist/cli/index.js",
-    "nltrade-optimized": "dist/cli/optimized-trading-cli.js"
+    "nltrade-optimized": "dist/cli/optimized-trading-cli.js",
+    "nltrade-layered": "dist/layered-cli.js"
   },
   "scripts": {
     "build": "tsc",
@@ -14,12 +15,16 @@
     "start": "node dist/index.js",
     "start:server": "node dist/server.js",
     "start:optimized": "node dist/optimized-server.js",
+    "start:layered": "node dist/layered-server.js",
     "start:cli": "node dist/cli/optimized-trading-cli.js",
+    "start:cli:layered": "node dist/layered-cli.js",
     "start:frontend": "cd frontend && npm run dev",
     "dev": "nodemon --exec ts-node src/index.ts",
     "dev:server": "nodemon --exec ts-node src/server.ts",
     "dev:optimized": "nodemon --exec ts-node src/optimized-server.ts",
+    "dev:layered": "nodemon --exec ts-node src/layered-server.ts",
     "dev:cli": "nodemon --exec ts-node src/cli/optimized-trading-cli.ts",
+    "dev:cli:layered": "nodemon --exec ts-node src/layered-cli.ts",
     "dev:frontend": "cd frontend && npm run dev",
     "type-check": "tsc --noEmit",
     "clean": "rm -rf dist && cd frontend && rm -rf dist"
