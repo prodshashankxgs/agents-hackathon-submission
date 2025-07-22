@@ -7,6 +7,58 @@ import { cacheService } from '../cache/cache-service';
 export class OpenAIService {
   private openai: OpenAI;
 
+  // Static OpenAI chat configuration for trade parsing to avoid re-creation per request
+  private static readonly tradeParsingTools: OpenAI.ChatCompletionTool[] = [{
+    type: 'function',
+    function: {
+      name: 'execute_trade',
+      description: 'Execute a stock trade based on user input',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['buy', 'sell'], description: 'Whether to buy or sell the stock' },
+          symbol: { type: 'string', description: 'The stock ticker symbol (e.g., AAPL, MSFT, GOOGL)' },
+          amount_type: { type: 'string', enum: ['dollars', 'shares'], description: 'Whether the amount is in dollars or number of shares' },
+          amount: { type: 'number', description: 'The amount to trade (either dollars or shares based on amount_type)' },
+          order_type: { type: 'string', enum: ['market', 'limit'], default: 'market', description: 'The type of order to place' },
+          limit_price: { type: 'number', description: 'The limit price for limit orders (required if order_type is limit)' }
+        },
+        required: ['action', 'symbol', 'amount_type', 'amount']
+      }
+    }
+  }];
+
+  private static readonly tradeParsingSystemMessage: string = `You are a trading assistant that parses natural language trading commands.
+Convert user input into structured trade parameters using the execute_trade function.
+
+PARSING GUIDELINES:
+1. Stock identification:
+   - Accept both company names and ticker symbols
+   - Use your knowledge to convert company names to their correct ticker symbols
+   - Handle case-insensitive input (msft, MSFT, Msft -> MSFT)
+   - For ambiguous names, use the most commonly traded stock
+
+2. Amount parsing:
+   - Currency: "$X", "X dollars", "X usd", "X bucks" -> amount_type: "dollars"
+   - Shares: "X shares", "X stocks", "X units" -> amount_type: "shares"
+   - Default: If just a number with "of" or "worth", assume dollars
+   - Handle written numbers: "hundred" -> 100, "fifty" -> 50, etc.
+
+3. Action identification:
+   - Buy synonyms: "buy", "purchase", "get", "acquire", "invest in", "pick up"
+   - Sell synonyms: "sell", "dispose", "get rid of", "dump", "liquidate"
+
+4. Order type:
+   - Default to "market" orders
+   - Only use "limit" if user specifies a price like "at $X" or "limit price X"
+
+5. Be flexible and intelligent:
+   - Handle typos and variations
+   - Understand context (e.g., "100 of Apple" likely means $100)
+   - Parse natural language numbers and amounts
+
+Always prioritize understanding the user's intent over strict pattern matching.`;
+
   constructor() {
     this.openai = new OpenAI({
       apiKey: config.openaiApiKey,
