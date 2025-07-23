@@ -370,14 +370,11 @@ export class EnhancedTradingCLI {
     console.log(chalk.gray('Type "exit" to quit\n'));
 
     while (true) {
-      const { command } = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'command',
-          message: chalk.cyan('nltrade>'),
-          prefix: ''
-        }
-      ]);
+      const { command } = await inquirer.prompt({
+        type: 'input',
+        name: 'command',
+        message: chalk.cyan('nltrade>')
+      });
 
       if (command.toLowerCase() === 'exit' || command.toLowerCase() === 'quit') {
         console.log(chalk.blue('👋 Goodbye!'));
@@ -440,41 +437,53 @@ export class EnhancedTradingCLI {
    * Trade wizard
    */
   private async tradeWizard(): Promise<void> {
-    const answers = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'action',
-        message: 'Do you want to buy or sell?',
-        choices: ['buy', 'sell']
-      },
-      {
-        type: 'input',
-        name: 'symbol',
-        message: 'Enter the stock symbol:',
-        validate: (input: string) => input.trim().length > 0 || 'Symbol is required'
-      },
-      {
-        type: 'list',
-        name: 'amountType',
-        message: 'How would you like to specify the amount?',
-        choices: [
-          { name: 'Dollar amount (e.g., $1000)', value: 'dollars' },
-          { name: 'Number of shares (e.g., 100 shares)', value: 'shares' }
-        ]
-      },
-      {
-        type: 'number',
-        name: 'amount',
-        message: 'Enter the amount:',
-        validate: (input: number) => input > 0 || 'Amount must be greater than 0'
-      },
-      {
-        type: 'list',
-        name: 'orderType',
-        message: 'Order type:',
-        choices: ['market', 'limit']
-      }
-    ]);
+    // Ask questions one by one since inquirer expects single question objects
+    const action = await inquirer.prompt({
+      type: 'list',
+      name: 'action',
+      message: 'Do you want to buy or sell?',
+      choices: ['buy', 'sell']
+    });
+
+    const symbol = await inquirer.prompt({
+      type: 'input',
+      name: 'symbol',
+      message: 'Enter the stock symbol:',
+      validate: (input: string) => input.trim().length > 0 || 'Symbol is required'
+    });
+
+    const amountType = await inquirer.prompt({
+      type: 'list',
+      name: 'amountType',
+      message: 'How would you like to specify the amount?',
+      choices: [
+        { name: 'Dollar amount (e.g., $1000)', value: 'dollars' },
+        { name: 'Number of shares (e.g., 100 shares)', value: 'shares' }
+      ]
+    });
+
+    const amount = await inquirer.prompt({
+      type: 'number',
+      name: 'amount',
+      message: 'Enter the amount:',
+      validate: (input: number | undefined) => (input && input > 0) || 'Amount must be greater than 0'
+    });
+
+    const orderType = await inquirer.prompt({
+      type: 'list',
+      name: 'orderType',
+      message: 'Order type:',
+      choices: ['market', 'limit']
+    });
+
+    // Combine all answers
+    const answers = {
+      action: action.action,
+      symbol: symbol.symbol,
+      amountType: amountType.amountType,
+      amount: amount.amount,
+      orderType: orderType.orderType
+    };
 
     // Build natural language command
     const amountText = answers.amountType === 'dollars' ? `$${answers.amount}` : `${answers.amount} shares`;

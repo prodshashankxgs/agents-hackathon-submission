@@ -62,6 +62,13 @@ interface OptionsChainData {
   expirationDates: string[];
   quotes: { [expiration: string]: OptionQuote[] };
   lastUpdated: Date;
+  analytics?: {
+    impliedVolatilityRank: number;
+    putCallRatio: number;
+    marketSentiment: 'bullish' | 'bearish' | 'neutral';
+    liquidityScore: number;
+    volatilitySurface?: any;
+  };
 }
 
 interface FilterOptions {
@@ -89,7 +96,7 @@ export const OptionsChain: React.FC<OptionsChainProps> = ({
   // State management
   const [chainData, setChainData] = useState<OptionsChainData | null>(null);
   const [selectedExpiration, setSelectedExpiration] = useState<string>('');
-  const [filters, setFilters] = useState<FilterOptions>({
+  const [filters] = useState<FilterOptions>({
     minVolume: 0,
     minOpenInterest: 0,
     maxStrike: 0,
@@ -106,9 +113,10 @@ export const OptionsChain: React.FC<OptionsChainProps> = ({
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [selectedStrikes, setSelectedStrikes] = useState<number[]>([]);
 
-  // TODO: Implement real options chain data fetching
-  // Architecture: Connect to broker adapter (Alpaca/Interactive Brokers) to fetch live options chain
-  // Required: Market data service integration, real-time quote updates, options contract validation
+  /**
+   * Fetch enhanced options chain data with real-time analytics
+   * Integrates with Phase 3 advanced market data APIs
+   */
   const fetchOptionsChain = useCallback(async () => {
     if (!symbol) return;
 
@@ -116,8 +124,8 @@ export const OptionsChain: React.FC<OptionsChainProps> = ({
     setError(null);
 
     try {
-      // Call backend API to get options chain data
-      const response = await fetch(`/api/options/chain/${symbol.toUpperCase()}${selectedExpiration ? `?expiration=${selectedExpiration}` : ''}`, {
+      // Call Phase 3 enhanced options chain API
+      const response = await fetch(`/api/advanced/market/options-chain/${symbol.toUpperCase()}${selectedExpiration ? `?expiration=${selectedExpiration}` : ''}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -128,24 +136,36 @@ export const OptionsChain: React.FC<OptionsChainProps> = ({
         throw new Error(`Failed to fetch options data: ${response.status} ${response.statusText}`);
       }
 
-      const optionsChainData = await response.json();
+      const { success, data: enhancedChainData } = await response.json();
       
-      // Transform the data for the UI
+      if (!success || !enhancedChainData) {
+        throw new Error('Invalid response from options chain API');
+      }
+      
+      // Transform enhanced data for the UI
       const transformedData: OptionsChainData = {
-        symbol: optionsChainData.symbol,
-        underlyingPrice: optionsChainData.underlyingPrice,
-        underlyingChange: 0, // Would need to calculate from market data
-        underlyingChangePercent: 0, // Would need to calculate from market data  
-        expirationDates: optionsChainData.expirationDates,
-        quotes: optionsChainData.chains,
-        lastUpdated: new Date()
+        symbol: enhancedChainData.chain.symbol,
+        underlyingPrice: enhancedChainData.chain.underlyingPrice,
+        underlyingChange: enhancedChainData.marketConditions?.underlyingChange || 0,
+        underlyingChangePercent: enhancedChainData.marketConditions?.underlyingChangePercent || 0,
+        expirationDates: enhancedChainData.chain.expirationDates,
+        quotes: enhancedChainData.chain.chains || {},
+        lastUpdated: new Date(enhancedChainData.lastUpdated),
+        // Enhanced analytics from Phase 3
+        analytics: {
+          impliedVolatilityRank: enhancedChainData.marketConditions?.ivPercentile || 0,
+          putCallRatio: enhancedChainData.marketConditions?.volumeProfile?.putCallRatio || 1,
+          marketSentiment: enhancedChainData.marketConditions?.marketSentiment || 'neutral',
+          liquidityScore: enhancedChainData.marketConditions?.liquidityScore || 0,
+          volatilitySurface: enhancedChainData.volatilitySurface
+        }
       };
       
       setChainData(transformedData);
       
       // Set selected expiration if not set
-      if (!selectedExpiration && optionsChainData.expirationDates && optionsChainData.expirationDates.length > 0) {
-        setSelectedExpiration(optionsChainData.expirationDates[0]);
+      if (!selectedExpiration && enhancedChainData.chain.expirationDates && enhancedChainData.chain.expirationDates.length > 0) {
+        setSelectedExpiration(enhancedChainData.chain.expirationDates[0]);
       }
 
     } catch (err) {
@@ -295,15 +315,38 @@ export const OptionsChain: React.FC<OptionsChainProps> = ({
             <div>
               <CardTitle className="text-xl">Options Chain - {symbol}</CardTitle>
               {chainData && (
-                <div className="flex items-center space-x-4 mt-2 text-sm text-gray-600">
-                  <span className="font-medium">${chainData.underlyingPrice.toFixed(2)}</span>
-                  <span className={`flex items-center ${chainData.underlyingChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {chainData.underlyingChange >= 0 ? <TrendingUp className="h-4 w-4 mr-1" /> : <TrendingDown className="h-4 w-4 mr-1" />}
-                    {chainData.underlyingChange.toFixed(2)} ({chainData.underlyingChangePercent.toFixed(2)}%)
-                  </span>
-                  <span className="text-xs">
-                    Last updated: {chainData.lastUpdated.toLocaleTimeString()}
-                  </span>
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-4 text-sm text-gray-600">
+                    <span className="font-medium">${chainData.underlyingPrice.toFixed(2)}</span>
+                    <span className={`flex items-center ${chainData.underlyingChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {chainData.underlyingChange >= 0 ? <TrendingUp className="h-4 w-4 mr-1" /> : <TrendingDown className="h-4 w-4 mr-1" />}
+                      {chainData.underlyingChange.toFixed(2)} ({chainData.underlyingChangePercent.toFixed(2)}%)
+                    </span>
+                    <span className="text-xs">
+                      Last updated: {chainData.lastUpdated.toLocaleTimeString()}
+                    </span>
+                  </div>
+                  {chainData.analytics && (
+                    <div className="flex items-center space-x-2">
+                      <Badge 
+                        variant={chainData.analytics.marketSentiment === 'bullish' ? 'default' : 
+                                 chainData.analytics.marketSentiment === 'bearish' ? 'destructive' : 'secondary'}
+                        className="text-xs"
+                      >
+                        {chainData.analytics.marketSentiment === 'bullish' ? '🐂 Bullish' : 
+                         chainData.analytics.marketSentiment === 'bearish' ? '🐻 Bearish' : '➡️ Neutral'}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs">
+                        P/C: {chainData.analytics.putCallRatio.toFixed(2)}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs">
+                        IV Rank: {chainData.analytics.impliedVolatilityRank.toFixed(0)}%
+                      </Badge>
+                      <Badge variant="outline" className="text-xs">
+                        Liquidity: {chainData.analytics.liquidityScore.toFixed(0)}/100
+                      </Badge>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -601,71 +644,10 @@ const OptionsRow: React.FC<{
   );
 };
 
-// TODO: Replace with actual expiration date fetching from broker
-// Architecture: Fetch standard options expiration dates from market data provider
-// Should include: Weekly, monthly, quarterly expirations, proper 3rd Friday calculation
-function generateExpirationDates(): string[] {
-  // Placeholder - actual implementation needs broker integration
-  return [];
-}
-
-// TODO: Replace with real options quotes from market data feed
-// Architecture: Integration with real-time options data provider (OPRA feed)
-// Required: Live bid/ask quotes, actual volume/OI, real implied volatility, calculated Greeks
-function generateOptionsQuotes(underlyingPrice: number, expiration: string): OptionQuote[] {
-  // Placeholder - requires market data feed integration
-  // Should fetch from broker: bid/ask, last price, volume, open interest, Greeks
-  return [];
-}
-
 function getDaysToExpiration(expiration: string): number {
   const now = new Date();
   const expiryDate = new Date(expiration);
   return Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-}
-
-function getMoneyness(strike: number, underlyingPrice: number): 'ITM' | 'ATM' | 'OTM' {
-  const diff = Math.abs(strike - underlyingPrice);
-  if (diff < 2.5) return 'ATM';
-  return strike < underlyingPrice ? 'ITM' : 'OTM';
-}
-
-// TODO: Move to dedicated pricing service with comprehensive options models
-// Architecture: Implement full Black-Scholes-Merton model with dividend yield support
-// Should include: American exercise, early exercise detection, volatility smile modeling
-function calculateOptionPrice(
-  type: 'call' | 'put',
-  S: number, // Current price
-  K: number, // Strike price
-  T: number, // Time to expiry
-  r: number, // Risk-free rate
-  sigma: number // Volatility
-): number {
-  // Placeholder - move to GreeksCalculatorService for production use
-  return 0;
-}
-
-// TODO: Use centralized GreeksCalculatorService for all Greeks calculations
-// Architecture: Integrate with existing GreeksCalculatorService for consistency
-// Should support: All Greeks (including rho), sensitivity analysis, portfolio Greeks aggregation
-function calculateGreeks(
-  type: 'call' | 'put',
-  S: number,
-  K: number,
-  T: number,
-  r: number,
-  sigma: number
-): { delta: number; gamma: number; theta: number; vega: number } {
-  // Placeholder - use GreeksCalculatorService.calculateOptionGreeks() in production
-  return { delta: 0, gamma: 0, theta: 0, vega: 0 };
-}
-
-// TODO: Use mathematical library for statistical functions
-// Architecture: Import from established math library (e.g., ml-matrix, jStat)
-// Note: Error function already implemented in GreeksCalculatorService
-function erf(x: number): number {
-  // Placeholder - use existing implementation from GreeksCalculatorService
-  return 0;
 }
 
 export default OptionsChain; 

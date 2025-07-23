@@ -8,7 +8,7 @@ import compression from 'compression';
 import helmet from 'helmet';
 import { WebSocket, WebSocketServer } from 'ws';
 
-import { apiRoutes } from './presentation/routes';
+import { router as apiRoutes } from './presentation/routes';
 import { 
   container, 
   resolveLogger, 

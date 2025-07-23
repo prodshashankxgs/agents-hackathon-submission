@@ -22,6 +22,7 @@ import { apiService, type HedgeRecommendation, type MarketAnalysis, type Thirtee
 import { formatCurrency } from '@/lib/utils'
 import { type ProcessingStep } from './ProcessingSteps'
 import { ResponsiveContainer, PieChart, Pie, Tooltip, Cell } from 'recharts'
+import { OptionsWidget } from './OptionsWidget'
 
 interface ParsedCommand {
   action: 'buy' | 'sell'
@@ -42,7 +43,11 @@ interface TradeResult {
   error?: string
 }
 
-export function TradingInterface() {
+interface TradingInterfaceProps {
+  accountInfo?: any;
+}
+
+export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
   const [command, setCommand] = useState('')
   const [parsedCommand, setParsedCommand] = useState<ParsedCommand | null>(null)
   const [hedgeRecommendation, setHedgeRecommendation] = useState<HedgeRecommendation | null>(null)
@@ -73,6 +78,10 @@ export function TradingInterface() {
   const [showProcessingContainer, setShowProcessingContainer] = useState(false)
   const [requestType, setRequestType] = useState<'trade' | 'hedge' | 'analysis' | 'recommendation' | '13f' | 'politicians' | null>(null)
   
+  // Options widget state
+  const [showOptionsWidget, setShowOptionsWidget] = useState(false)
+  const [optionsSymbol, setOptionsSymbol] = useState<string>('')
+  
   const inputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
@@ -84,7 +93,7 @@ export function TradingInterface() {
         steps = [
           { id: 'parse', label: 'Understanding your request', status: 'pending' },
           { id: 'validate', label: 'Validating trade parameters', status: 'pending' },
-          { id: 'confirm', label: 'Ready for confirmation', status: 'pending' }
+          { id: 'confirm', label: 'Ready for execution', status: 'pending' }
         ]
       } else if (type === '13f') {
         steps = [
@@ -212,6 +221,10 @@ export function TradingInterface() {
       setRequestType(type as any)
       initializeProcessingSteps(type)
       
+      // Check if this is an options-related command (simple long/short detection)
+      const lowerCommand = command.toLowerCase()
+      const isOptionsCommand = lowerCommand.includes('long') || lowerCommand.includes('short')
+      
       if (type === 'trade') {
         await advanceToStep(0) // Understanding request
         
@@ -221,21 +234,42 @@ export function TradingInterface() {
         await advanceToStep(1) // Validating parameters
         await new Promise(resolve => setTimeout(resolve, 800))
         
-        const parsedTrade = {
-          action: tradeIntent.action,
-          symbol: tradeIntent.symbol,
-          quantity: tradeIntent.amountType === 'shares' ? tradeIntent.amount : undefined,
-          amount: tradeIntent.amountType === 'dollars' ? tradeIntent.amount : undefined,
-          orderType: tradeIntent.orderType,
-          limitPrice: tradeIntent.limitPrice,
-          isValid: true
+        // If this is an options-related command, show options widget directly
+        if (isOptionsCommand) {
+          await advanceToStep(2) // Ready for options
+          updateStepStatus(2, 'complete', 'Opening options trading interface...')
+          setIsLoading(false)
+          
+          setTimeout(() => {
+            const symbol = tradeIntent.symbol
+            setOptionsSymbol(symbol)
+            setShowOptionsWidget(true)
+            
+            // Reset the interface after opening widget
+            setTimeout(() => {
+              setCommand('')
+              setParsedCommand(null)
+              resetProcessing()
+              inputRef.current?.focus()
+            }, 500)
+          }, 800)
+        } else {
+          const parsedTrade = {
+            action: tradeIntent.action,
+            symbol: tradeIntent.symbol,
+            quantity: tradeIntent.amountType === 'shares' ? tradeIntent.amount : undefined,
+            amount: tradeIntent.amountType === 'dollars' ? tradeIntent.amount : undefined,
+            orderType: tradeIntent.orderType,
+            limitPrice: tradeIntent.limitPrice,
+            isValid: true
+          }
+          
+          setParsedCommand(parsedTrade)
+          
+          await advanceToStep(2) // Ready for confirmation
+          updateStepStatus(2, 'complete', 'Trade ready for confirmation')
+          setShowConfirmation(true)
         }
-        
-        setParsedCommand(parsedTrade)
-        
-        await advanceToStep(2) // Ready for confirmation
-        updateStepStatus(2, 'complete', 'Trade ready for confirmation')
-        setShowConfirmation(true)
         
       } else if (type === 'hedge') {
         await advanceToStep(0) // Analyzing request
@@ -1471,6 +1505,18 @@ export function TradingInterface() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Options Trading Widget */}
+      {showOptionsWidget && (
+        <div className="slide-in-bottom">
+          <OptionsWidget
+            symbol={optionsSymbol}
+            isOpen={showOptionsWidget}
+            onClose={() => setShowOptionsWidget(false)}
+            accountInfo={accountInfo}
+          />
         </div>
       )}
     </div>

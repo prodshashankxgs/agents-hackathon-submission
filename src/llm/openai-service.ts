@@ -215,7 +215,7 @@ Always prioritize understanding the user's intent over strict pattern matching.`
     } catch (error) {
       if (error instanceof z.ZodError) {
         // Provide detailed validation error messages
-        const errorMessage = `Invalid trade parameters: ${error.errors.map(e => e.message).join(', ')}`;
+        const errorMessage = `Invalid trade parameters: ${error.issues.map((e: any) => e.message).join(', ')}`;
         throw new LLMError(errorMessage, {
           validationErrors: error.format(),
           userInput

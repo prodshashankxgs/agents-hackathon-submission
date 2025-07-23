@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { 
@@ -13,20 +12,12 @@ import {
   ResponsiveContainer,
   Area,
   AreaChart,
-  ReferenceLine,
-  Legend,
-  BarChart,
-  Bar
+  ReferenceLine
 } from 'recharts';
 import { 
   TrendingUp, 
-  TrendingDown, 
   Target,
   Clock,
-  Zap,
-  AlertTriangle,
-  Info,
-  DollarSign,
   BarChart3
 } from 'lucide-react';
 
@@ -90,8 +81,7 @@ export const StrategyVisualizer: React.FC<StrategyVisualizerProps> = ({
   className = ''
 }) => {
   const [selectedView, setSelectedView] = useState<'pnl' | 'greeks' | 'probability' | 'time'>('pnl');
-  const [priceRange, setPriceRange] = useState({ min: 0, max: 0 });
-  const [timeHorizon, setTimeHorizon] = useState<'now' | '30days' | 'expiration'>('expiration');
+  // const [timeHorizon] = useState<'now' | '30days' | 'expiration'>('expiration');
 
   // Calculate P&L chart data
   const pnlData = useMemo(() => {
@@ -185,8 +175,8 @@ export const StrategyVisualizer: React.FC<StrategyVisualizerProps> = ({
     ] as GreeksData[];
   }, [strategy]);
 
-  // Find key levels
-  const keyLevels = useMemo(() => {
+  // Find key levels - commented out for now
+  /* const _keyLevels = useMemo(() => {
     const breakevens = strategy.breakeven;
     const maxProfitPrice = findMaxProfitPrice(pnlData);
     const maxLossPrice = findMaxLossPrice(pnlData);
@@ -197,7 +187,7 @@ export const StrategyVisualizer: React.FC<StrategyVisualizerProps> = ({
       maxProfitPrice,
       maxLossPrice
     };
-  }, [strategy.breakeven, strategy.currentPrice, pnlData]);
+  }, [strategy.breakeven, strategy.currentPrice, pnlData]); */
 
   // Custom tooltip for P&L chart
   const PnLTooltip = ({ active, payload, label }: any) => {
@@ -535,13 +525,14 @@ function calculateProbability(price: number, currentPrice: number, iv: number, d
   return Math.exp(-0.5 * d * d) / Math.sqrt(2 * Math.PI * iv * Math.sqrt(timeToExpiry));
 }
 
-function findMaxProfitPrice(pnlData: PnLPoint[]): number {
-  return pnlData.reduce((max, point) => point.pnl > max.pnl ? point : max).price;
-}
+// Helper functions commented out for now
+// function findMaxProfitPrice(pnlData: PnLPoint[]): number {
+//   return pnlData.reduce((max, point) => point.pnl > max.pnl ? point : max).price;
+// }
 
-function findMaxLossPrice(pnlData: PnLPoint[]): number {
-  return pnlData.reduce((min, point) => point.pnl < min.pnl ? point : min).price;
-}
+// function findMaxLossPrice(pnlData: PnLPoint[]): number {
+//   return pnlData.reduce((min, point) => point.pnl < min.pnl ? point : min).price;
+// }
 
 function calculateIntrinsicValue(strategy: StrategyData): number {
   let intrinsicValue = 0;

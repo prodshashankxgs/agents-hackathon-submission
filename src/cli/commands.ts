@@ -103,15 +103,12 @@ export class TradingCLI {
    * Prompt for trade input
    */
   private async promptForTradeInput(): Promise<string> {
-    const { input } = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'input',
-        message: 'What would you like to trade?',
-        prefix: '💬',
-        transformer: (input: string) => chalk.cyan(input)
-      }
-    ]);
+    const { input } = await inquirer.prompt({
+      type: 'input',
+      name: 'input',
+      message: '💬 What would you like to trade?',
+      transformer: (input: string) => chalk.cyan(input)
+    });
     
     return input;
   }
@@ -229,14 +226,11 @@ export function createProgram(): Command {
       console.log(chalk.gray('Type "exit" to quit\n'));
       
       while (true) {
-        const { command } = await inquirer.prompt([
-          {
-            type: 'input',
-            name: 'command',
-            message: 'nltrade>',
-            prefix: ''
-          }
-        ]);
+        const { command } = await inquirer.prompt({
+          type: 'input',
+          name: 'command',
+          message: 'nltrade>'
+        });
         
         if (command.toLowerCase() === 'exit') {
           console.log(chalk.blue('👋 Goodbye!'));

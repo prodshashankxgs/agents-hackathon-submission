@@ -64,15 +64,12 @@ export class TradingChatbot {
 
     // Start conversation loop
     while (true) {
-      const { message } = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'message',
-          message: chalk.cyan('You:'),
-          prefix: '',
-          transformer: (input: string) => chalk.white(input)
-        }
-      ]);
+      const { message } = await inquirer.prompt({
+        type: 'input',
+        name: 'message',
+        message: chalk.cyan('You:'),
+        transformer: (input: string) => chalk.white(input)
+      });
 
       if (message.toLowerCase() === 'exit' || message.toLowerCase() === 'quit') {
         console.log(chalk.blue('\n👋 Thanks for using the trading assistant. Goodbye!\n'));

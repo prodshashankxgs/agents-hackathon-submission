@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from 'react'
+import { useState, lazy, Suspense, memo, useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { 
   CreditCardIcon,
@@ -14,51 +14,63 @@ import {
 } from 'lucide-react'
 import { apiService } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
-import { TradingInterface } from './TradingInterface'
-import { PortfolioOverview } from './PortfolioOverview'
 
-import { PortfolioBaskets } from './PortfolioBaskets'
-
-// Lazy load the PortfolioPerformance component since it includes heavy charting libraries
+// Lazy load all major components for better code splitting
+const TradingInterface = lazy(() => import('./TradingInterface').then(module => ({ default: module.TradingInterface })))
+const PortfolioOverview = lazy(() => import('./PortfolioOverview').then(module => ({ default: module.PortfolioOverview })))
+const PortfolioBaskets = lazy(() => import('./PortfolioBaskets').then(module => ({ default: module.PortfolioBaskets })))
 const PortfolioPerformance = lazy(() => import('./PortfolioPerformance').then(module => ({ default: module.PortfolioPerformance })))
 
 interface TradingDashboardProps {
   wsConnected: boolean
 }
 
-export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
+export const TradingDashboard = memo(({ wsConnected }: TradingDashboardProps) => {
   const [selectedTab, setSelectedTab] = useState<'trade' | 'portfolio' | 'performance' | 'baskets'>('trade')
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
-  // Fetch account information
+  // Memoize tab change handler
+  const handleTabChange = useCallback((tab: typeof selectedTab) => {
+    setSelectedTab(tab)
+    setIsMobileMenuOpen(false) // Close mobile menu when tab changes
+  }, [])
+
+  // Memoize mobile menu toggle
+  const toggleMobileMenu = useCallback(() => {
+    setIsMobileMenuOpen(prev => !prev)
+  }, [])
+
+  // Fetch account information - only when needed
   const { data: accountInfo, error: accountError } = useQuery({
     queryKey: ['account'],
     queryFn: apiService.getAccountInfo,
     refetchInterval: 30000,
+    enabled: selectedTab === 'trade' || selectedTab === 'portfolio', // Only fetch when needed
   })
 
-  // Fetch health status
+  // Fetch health status - less frequent
   const { data: healthStatus } = useQuery({
     queryKey: ['health'],
     queryFn: apiService.getHealth,
-    refetchInterval: 60000,
+    refetchInterval: 2 * 60000, // Increased to 2 minutes
+    staleTime: 60000, // 1 minute stale time
   })
 
-  // Fetch market status
+  // Fetch market status - less frequent
   const { data: marketStatus } = useQuery({
     queryKey: ['market-status'],
     queryFn: apiService.getMarketStatus,
-    refetchInterval: 60000,
+    refetchInterval: 2 * 60000, // Increased to 2 minutes
+    staleTime: 60000, // 1 minute stale time
   })
 
-
-
-  const navigationItems = [
-    { id: 'trade', label: 'Trade', icon: DollarSignIcon },
-    { id: 'portfolio', label: 'Portfolio', icon: PieChartIcon },
-    { id: 'performance', label: 'Performance', icon: LineChartIcon },
-    { id: 'baskets', label: 'Baskets', icon: CreditCardIcon },
-  ] as const
+  // Memoize navigation items to prevent re-renders
+  const navigationItems = useMemo(() => [
+    { id: 'trade' as const, label: 'Trade', icon: DollarSignIcon },
+    { id: 'portfolio' as const, label: 'Portfolio', icon: PieChartIcon },
+    { id: 'performance' as const, label: 'Performance', icon: LineChartIcon },
+    { id: 'baskets' as const, label: 'Baskets', icon: CreditCardIcon },
+  ], [])
 
   return (
     <div className="flex h-screen bg-gray-50/30 relative overflow-hidden">
@@ -127,10 +139,7 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
               return (
                 <button
                   key={item.id}
-                onClick={() => {
-                  setSelectedTab(item.id)
-                  setIsMobileMenuOpen(false)
-                }}
+                onClick={() => handleTabChange(item.id)}
                 className={`nav-item w-full text-xs sm:text-sm ${
                   isActive ? 'active' : 'text-gray-600 hover:text-gray-900'
                 }`}
@@ -203,7 +212,7 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
               {/* Mobile Hamburger Menu */}
               <button 
                 className="lg:hidden p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200"
-                onClick={() => setIsMobileMenuOpen(true)}
+                onClick={toggleMobileMenu}
               >
                 <MenuIcon className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600" />
               </button>
@@ -241,7 +250,7 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
             <div key={selectedTab} className="tab-content-enter">
               {selectedTab === 'trade' && (
                 <div className="slide-in-bottom">
-                  <TradingInterface />
+                  <TradingInterface accountInfo={accountInfo} />
                 </div>
               )}
               {selectedTab === 'portfolio' && (
@@ -249,6 +258,7 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
                   <PortfolioOverview accountInfo={accountInfo} />
                 </div>
               )}
+
               {selectedTab === 'performance' && (
                 <div className="slide-in-bottom">
                   <Suspense fallback={
@@ -297,4 +307,6 @@ export function TradingDashboard({ wsConnected }: TradingDashboardProps) {
       </div>
     </div>
   )
-} 
+})
+
+TradingDashboard.displayName = 'TradingDashboard' 

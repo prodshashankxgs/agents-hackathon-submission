@@ -1,15 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { 
   TrendingUp, 
-  TrendingDown, 
   Shield, 
   DollarSign,
-  Clock,
   Target,
   AlertTriangle,
   CheckCircle,
@@ -86,7 +83,6 @@ interface StrategyWizardProps {
 
 export const StrategyWizard: React.FC<StrategyWizardProps> = ({
   className = '',
-  onStrategySelected,
   onExecuteStrategy
 }) => {
   // Wizard state management
@@ -136,18 +132,28 @@ export const StrategyWizard: React.FC<StrategyWizardProps> = ({
     }
   };
 
-  // Step 2: Get Strategy Recommendations
+  // Step 2: Get Strategy Recommendations using Phase 3 Advanced APIs
   const getRecommendations = async () => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const response = await fetch('/api/strategies/recommend', {
+      const response = await fetch('/api/advanced/strategies/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           command,
-          userProfile
+          userProfile,
+          marketConditions: {
+            volatilityRegime: 'normal',
+            marketTrend: 'neutral',
+            interestRateEnvironment: 'rising'
+          },
+          riskAssessment: {
+            tolerance: userProfile.riskTolerance,
+            capitalAvailable: userProfile.capitalAvailable,
+            experience: userProfile.experienceLevel
+          }
         })
       });
       
@@ -158,7 +164,13 @@ export const StrategyWizard: React.FC<StrategyWizardProps> = ({
       const data = await response.json();
       
       if (data.success) {
-        setRecommendations(data.data.recommendations);
+        // Enhanced recommendations from Phase 3 strategy engine
+        setRecommendations(data.data.recommendations.map((rec: any) => ({
+          ...rec,
+          riskMetrics: rec.analysis?.riskMetrics || {},
+          expectedReturns: rec.analysis?.expectedReturns || {},
+          greeksProfile: rec.analysis?.greeksProfile || {}
+        })));
         setCurrentStep('recommendations');
       }
       
