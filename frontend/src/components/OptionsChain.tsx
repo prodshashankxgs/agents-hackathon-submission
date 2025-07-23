@@ -106,7 +106,9 @@ export const OptionsChain: React.FC<OptionsChainProps> = ({
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [selectedStrikes, setSelectedStrikes] = useState<number[]>([]);
 
-  // Simulate fetching options chain data
+  // TODO: Implement real options chain data fetching
+  // Architecture: Connect to broker adapter (Alpaca/Interactive Brokers) to fetch live options chain
+  // Required: Market data service integration, real-time quote updates, options contract validation
   const fetchOptionsChain = useCallback(async () => {
     if (!symbol) return;
 
@@ -114,37 +116,43 @@ export const OptionsChain: React.FC<OptionsChainProps> = ({
     setError(null);
 
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      // Generate realistic options chain data
-      const underlyingPrice = 150 + Math.random() * 100; // $150-$250 range
-      const expirationDates = generateExpirationDates();
-      const quotes: { [expiration: string]: OptionQuote[] } = {};
-
-      expirationDates.forEach(expiration => {
-        quotes[expiration] = generateOptionsQuotes(underlyingPrice, expiration);
+      // Call backend API to get options chain data
+      const response = await fetch(`/api/options/chain/${symbol.toUpperCase()}${selectedExpiration ? `?expiration=${selectedExpiration}` : ''}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
       });
 
-      const mockData: OptionsChainData = {
-        symbol,
-        underlyingPrice,
-        underlyingChange: (Math.random() - 0.5) * 10,
-        underlyingChangePercent: (Math.random() - 0.5) * 5,
-        expirationDates,
-        quotes,
+      if (!response.ok) {
+        throw new Error(`Failed to fetch options data: ${response.status} ${response.statusText}`);
+      }
+
+      const optionsChainData = await response.json();
+      
+      // Transform the data for the UI
+      const transformedData: OptionsChainData = {
+        symbol: optionsChainData.symbol,
+        underlyingPrice: optionsChainData.underlyingPrice,
+        underlyingChange: 0, // Would need to calculate from market data
+        underlyingChangePercent: 0, // Would need to calculate from market data  
+        expirationDates: optionsChainData.expirationDates,
+        quotes: optionsChainData.chains,
         lastUpdated: new Date()
       };
-
-      setChainData(mockData);
       
-      // Set default expiration to the nearest one
-      if (!selectedExpiration && expirationDates.length > 0) {
-        setSelectedExpiration(expirationDates[0]);
+      setChainData(transformedData);
+      
+      // Set selected expiration if not set
+      if (!selectedExpiration && optionsChainData.expirationDates && optionsChainData.expirationDates.length > 0) {
+        setSelectedExpiration(optionsChainData.expirationDates[0]);
       }
 
     } catch (err) {
+      console.error('Options chain fetch error:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch options data');
+      // Clear data on error
+      setChainData(null);
     } finally {
       setIsLoading(false);
     }
@@ -593,88 +601,21 @@ const OptionsRow: React.FC<{
   );
 };
 
-// Helper functions
+// TODO: Replace with actual expiration date fetching from broker
+// Architecture: Fetch standard options expiration dates from market data provider
+// Should include: Weekly, monthly, quarterly expirations, proper 3rd Friday calculation
 function generateExpirationDates(): string[] {
-  const dates: string[] = [];
-  const now = new Date();
-  
-  // Generate weekly and monthly expirations for next 3 months
-  for (let i = 1; i <= 12; i++) {
-    const expiry = new Date(now);
-    expiry.setDate(now.getDate() + (i * 7)); // Weekly
-    dates.push(expiry.toISOString().split('T')[0]);
-  }
-  
-  // Add monthly expirations
-  for (let i = 1; i <= 6; i++) {
-    const expiry = new Date(now.getFullYear(), now.getMonth() + i, 15); // 3rd Friday approximation
-    const dateStr = expiry.toISOString().split('T')[0];
-    if (!dates.includes(dateStr)) {
-      dates.push(dateStr);
-    }
-  }
-  
-  return dates.sort();
+  // Placeholder - actual implementation needs broker integration
+  return [];
 }
 
+// TODO: Replace with real options quotes from market data feed
+// Architecture: Integration with real-time options data provider (OPRA feed)
+// Required: Live bid/ask quotes, actual volume/OI, real implied volatility, calculated Greeks
 function generateOptionsQuotes(underlyingPrice: number, expiration: string): OptionQuote[] {
-  const quotes: OptionQuote[] = [];
-  const daysToExpiry = getDaysToExpiration(expiration);
-  const timeToExpiry = daysToExpiry / 365;
-  
-  // Generate strikes around underlying price
-  const strikeRange = Math.max(20, underlyingPrice * 0.4);
-  const strikeStep = underlyingPrice > 100 ? 5 : 2.5;
-  
-  for (let strike = underlyingPrice - strikeRange; strike <= underlyingPrice + strikeRange; strike += strikeStep) {
-    if (strike <= 0) continue;
-    
-    const roundedStrike = Math.round(strike / strikeStep) * strikeStep;
-    const moneyness = getMoneyness(roundedStrike, underlyingPrice);
-    
-    // Calculate theoretical prices using simplified Black-Scholes
-    const iv = 0.2 + Math.random() * 0.3; // 20-50% IV
-    const callPrice = calculateOptionPrice('call', underlyingPrice, roundedStrike, timeToExpiry, 0.05, iv);
-    const putPrice = calculateOptionPrice('put', underlyingPrice, roundedStrike, timeToExpiry, 0.05, iv);
-    
-    // Calculate Greeks
-    const callGreeks = calculateGreeks('call', underlyingPrice, roundedStrike, timeToExpiry, 0.05, iv);
-    const putGreeks = calculateGreeks('put', underlyingPrice, roundedStrike, timeToExpiry, 0.05, iv);
-    
-    // Generate market data
-    const spread = Math.max(0.05, callPrice * 0.02);
-    const volume = Math.floor(Math.random() * 1000);
-    const openInterest = Math.floor(Math.random() * 5000);
-    
-    quotes.push({
-      strike: roundedStrike,
-      callBid: Math.max(0.01, callPrice - spread / 2),
-      callAsk: callPrice + spread / 2,
-      callLast: callPrice + (Math.random() - 0.5) * spread,
-      callVolume: volume,
-      callOpenInterest: openInterest,
-      callIV: iv,
-      callDelta: callGreeks.delta,
-      callGamma: callGreeks.gamma,
-      callTheta: callGreeks.theta,
-      callVega: callGreeks.vega,
-      putBid: Math.max(0.01, putPrice - spread / 2),
-      putAsk: putPrice + spread / 2,
-      putLast: putPrice + (Math.random() - 0.5) * spread,
-      putVolume: volume,
-      putOpenInterest: openInterest,
-      putIV: iv,
-      putDelta: putGreeks.delta,
-      putGamma: putGreeks.gamma,
-      putTheta: putGreeks.theta,
-      putVega: putGreeks.vega,
-      intrinsicValue: Math.max(0, underlyingPrice - roundedStrike),
-      timeValue: callPrice - Math.max(0, underlyingPrice - roundedStrike),
-      moneyness
-    });
-  }
-  
-  return quotes.sort((a, b) => a.strike - b.strike);
+  // Placeholder - requires market data feed integration
+  // Should fetch from broker: bid/ask, last price, volume, open interest, Greeks
+  return [];
 }
 
 function getDaysToExpiration(expiration: string): number {
@@ -689,7 +630,9 @@ function getMoneyness(strike: number, underlyingPrice: number): 'ITM' | 'ATM' | 
   return strike < underlyingPrice ? 'ITM' : 'OTM';
 }
 
-// Simplified Black-Scholes calculation
+// TODO: Move to dedicated pricing service with comprehensive options models
+// Architecture: Implement full Black-Scholes-Merton model with dividend yield support
+// Should include: American exercise, early exercise detection, volatility smile modeling
 function calculateOptionPrice(
   type: 'call' | 'put',
   S: number, // Current price
@@ -698,20 +641,13 @@ function calculateOptionPrice(
   r: number, // Risk-free rate
   sigma: number // Volatility
 ): number {
-  if (T <= 0) return Math.max(0, type === 'call' ? S - K : K - S);
-  
-  const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
-  const d2 = d1 - sigma * Math.sqrt(T);
-  
-  const N = (x: number) => 0.5 * (1 + erf(x / Math.sqrt(2)));
-  
-  if (type === 'call') {
-    return S * N(d1) - K * Math.exp(-r * T) * N(d2);
-  } else {
-    return K * Math.exp(-r * T) * N(-d2) - S * N(-d1);
-  }
+  // Placeholder - move to GreeksCalculatorService for production use
+  return 0;
 }
 
+// TODO: Use centralized GreeksCalculatorService for all Greeks calculations
+// Architecture: Integrate with existing GreeksCalculatorService for consistency
+// Should support: All Greeks (including rho), sensitivity analysis, portfolio Greeks aggregation
 function calculateGreeks(
   type: 'call' | 'put',
   S: number,
@@ -720,52 +656,16 @@ function calculateGreeks(
   r: number,
   sigma: number
 ): { delta: number; gamma: number; theta: number; vega: number } {
-  if (T <= 0) return { delta: 0, gamma: 0, theta: 0, vega: 0 };
-  
-  const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
-  const d2 = d1 - sigma * Math.sqrt(T);
-  
-  const N = (x: number) => 0.5 * (1 + erf(x / Math.sqrt(2)));
-  const n = (x: number) => Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
-  
-  // Delta
-  const delta = type === 'call' ? N(d1) : N(d1) - 1;
-  
-  // Gamma
-  const gamma = n(d1) / (S * sigma * Math.sqrt(T));
-  
-  // Theta
-  const theta = type === 'call' 
-    ? -(S * n(d1) * sigma) / (2 * Math.sqrt(T)) - r * K * Math.exp(-r * T) * N(d2)
-    : -(S * n(d1) * sigma) / (2 * Math.sqrt(T)) + r * K * Math.exp(-r * T) * N(-d2);
-  
-  // Vega
-  const vega = S * n(d1) * Math.sqrt(T);
-  
-  return {
-    delta: delta,
-    gamma: gamma,
-    theta: theta / 365, // Daily theta
-    vega: vega / 100 // Vega per 1% vol change
-  };
+  // Placeholder - use GreeksCalculatorService.calculateOptionGreeks() in production
+  return { delta: 0, gamma: 0, theta: 0, vega: 0 };
 }
 
-// Error function approximation
+// TODO: Use mathematical library for statistical functions
+// Architecture: Import from established math library (e.g., ml-matrix, jStat)
+// Note: Error function already implemented in GreeksCalculatorService
 function erf(x: number): number {
-  const a1 =  0.254829592;
-  const a2 = -0.284496736;
-  const a3 =  1.421413741;
-  const a4 = -1.453152027;
-  const a5 =  1.061405429;
-  const p  =  0.3275911;
-
-  const sign = x >= 0 ? 1 : -1;
-  x = Math.abs(x);
-
-  const t = 1.0 / (1.0 + p * x);
-  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
-
-  return sign * y;
+  // Placeholder - use existing implementation from GreeksCalculatorService
+  return 0;
 }
 
 export default OptionsChain; 

@@ -649,54 +649,81 @@ export class OptionsPerformanceAnalytics {
     return values.length > 0 ? values.reduce((sum, v) => sum + v, 0) / values.length : 0;
   }
 
-  // Placeholder methods for advanced features
+  // TODO: Implement real-time P&L attribution with market data integration
+  // Architecture: Greeks-based attribution analysis with real market movements
+  // Required: Historical Greeks, market price movements, time decay calculations
   private async calculatePositionAttribution(position: OptionsPosition, marketConditions: any): Promise<PositionAttribution> {
-    // Complex Greeks-based P&L attribution calculation
+    // TODO: Calculate actual attribution based on:
+    // - Delta contribution: price movement impact
+    // - Gamma contribution: delta change impact  
+    // - Theta contribution: time decay impact
+    // - Vega contribution: volatility change impact
+    // - Rho contribution: interest rate change impact
     return {
       positionId: position.id,
       totalPnL: position.unrealizedPnL,
-      deltaContribution: 0,
-      gammaContribution: 0,
-      thetaContribution: 0,
-      vegaContribution: 0,
-      rhoContribution: 0,
-      residualContribution: 0
+      deltaContribution: 0, // TODO: Implement
+      gammaContribution: 0, // TODO: Implement
+      thetaContribution: 0, // TODO: Implement
+      vegaContribution: 0,  // TODO: Implement
+      rhoContribution: 0,   // TODO: Implement
+      residualContribution: 0 // TODO: Implement
     };
   }
 
+  // TODO: Implement comprehensive portfolio exposure analysis
+  // Architecture: Risk concentration analysis across underlyings, sectors, strategies
+  // Should analyze: position sizes, correlation, sector exposure, Greeks concentration
   private async calculateCurrentExposure(positions: OptionsPosition[]): Promise<any> {
-    // Portfolio exposure analysis
+    // TODO: Calculate exposure metrics
     return { maxConcentration: 0, topHoldings: [] };
   }
 
+  // TODO: Implement correlation analysis between positions and underlyings
+  // Architecture: Statistical correlation analysis with market data integration
+  // Required: Historical price data, volatility correlations, sector analysis
   private async calculateCorrelationMatrix(positions: OptionsPosition[]): Promise<any> {
-    // Correlation analysis between positions
+    // TODO: Calculate correlation matrix for risk analysis
     return {};
   }
 
+  // TODO: Implement risk contribution analysis for portfolio components
+  // Architecture: Component VaR and marginal risk contribution calculations
+  // Should identify: highest risk contributors, diversification benefits
   private calculateRiskContribution(positions: OptionsPosition[], exposure: any): any {
-    // Risk contribution analysis
+    // TODO: Calculate marginal risk contribution by position
     return {};
   }
 
+  // TODO: Implement comprehensive risk scoring algorithm
+  // Architecture: Multi-factor risk assessment with industry benchmarks
   private calculateRiskScore(exposure: any, riskContribution: any): number {
-    return 50; // Placeholder
+    return 50; // TODO: Implement risk scoring based on exposure and VaR
   }
 
+  // TODO: Implement diversification scoring across multiple dimensions
+  // Architecture: Measure diversification across underlyings, strategies, time horizons
   private calculateDiversificationScore(positions: OptionsPosition[]): number {
-    return 75; // Placeholder
+    return 75; // TODO: Calculate based on Herfindahl index and correlation analysis
   }
 
+  // TODO: Implement portfolio efficiency scoring (risk-adjusted returns)
+  // Architecture: Sharpe ratio, information ratio, and capital efficiency analysis
   private calculateEfficiencyScore(positions: OptionsPosition[]): number {
-    return 80; // Placeholder
+    return 80; // TODO: Calculate efficiency based on risk-adjusted metrics
   }
 
+  // TODO: Implement portfolio optimization for target allocations
+  // Architecture: Modern portfolio theory with options-specific constraints
+  // Should consider: Greeks limits, margin requirements, liquidity constraints
   private generateTargetAllocations(positions: OptionsPosition[], riskTolerance: string): any {
-    return {}; // Placeholder
+    return {}; // TODO: Implement optimization algorithm
   }
 
+  // TODO: Implement projected improvement calculations for optimization suggestions
+  // Architecture: Quantify expected impact of portfolio changes on risk/return metrics
   private calculateProjectedImprovements(suggestions: OptimizationSuggestion[]): any {
-    return {}; // Placeholder
+    return {}; // TODO: Model expected improvements from suggestions
   }
 
   private calculateLeverage(positions: OptionsPosition[], portfolioValue: number): number {
@@ -704,9 +731,11 @@ export class OptionsPerformanceAnalytics {
     return portfolioValue > 0 ? totalExposure / portfolioValue : 0;
   }
 
+  // TODO: Implement portfolio beta calculation vs market benchmarks
+  // Architecture: Weighted beta calculation considering options exposure and Greeks
+  // Required: Market data integration, underlying beta calculations
   private async calculatePortfolioBeta(positions: OptionsPosition[]): Promise<number> {
-    // Calculate portfolio beta vs market
-    return 0.8; // Placeholder
+    return 0.8; // TODO: Calculate weighted portfolio beta
   }
 }
 

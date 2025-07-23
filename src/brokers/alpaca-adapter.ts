@@ -164,11 +164,30 @@ export class AlpacaAdapter implements OptionsBrokerAdapter {
       };
       
       if (order.amountType === 'dollars') {
-        // Use notional orders - Alpaca handles fractional shares automatically
-        console.log(`Creating notional order for ${order.symbol}: $${order.amount}`);
-        orderParams.notional = order.amount;
-        // Remove qty parameter for notional orders
-        delete orderParams.qty;
+        // Handle dollar-based orders
+        if (order.action === 'sell') {
+          // For sell orders, convert dollars to shares since notional sells may not be supported
+          console.log(`Converting dollar sell order to shares for ${order.symbol}: $${order.amount}`);
+          try {
+            const marketData = await this.getMarketData(order.symbol);
+            const sharesToSell = Math.floor(order.amount / marketData.currentPrice);
+            if (sharesToSell < 1) {
+              throw new Error(`$${order.amount} is not enough to sell at least 1 share at current price $${marketData.currentPrice}`);
+            }
+            orderParams.qty = sharesToSell;
+            console.log(`Converted to ${sharesToSell} shares at $${marketData.currentPrice} per share`);
+          } catch (marketDataError) {
+            console.warn('Could not get market data for sell conversion, using notional order anyway');
+            orderParams.notional = order.amount;
+            delete orderParams.qty;
+          }
+        } else {
+          // Use notional orders for buy orders - Alpaca handles fractional shares automatically
+          console.log(`Creating notional buy order for ${order.symbol}: $${order.amount}`);
+          orderParams.notional = order.amount;
+          // Remove qty parameter for notional orders
+          delete orderParams.qty;
+        }
       } else {
         orderParams.qty = order.amount;
       }
@@ -179,6 +198,8 @@ export class AlpacaAdapter implements OptionsBrokerAdapter {
       
       // Submit the order
       console.log('Submitting order with params:', JSON.stringify(orderParams, null, 2));
+      console.log('Original trade intent action:', order.action);
+      console.log('Mapped to Alpaca side:', orderParams.side);
       const alpacaOrder = await this.alpaca.createOrder(orderParams);
       console.log('Order submitted, initial response:', JSON.stringify(alpacaOrder, null, 2));
       

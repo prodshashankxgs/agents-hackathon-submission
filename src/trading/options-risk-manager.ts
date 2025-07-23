@@ -321,24 +321,24 @@ export class OptionsRiskManager {
         };
 
         // Calculate theoretical value under stress scenario
-        let stressedContract = position.contract;
-        if (scenario.timeMove) {
-          const newExpDate = new Date(position.expirationDate);
+        let stressedContract = position.legs[0]?.contract;
+        if (scenario.timeMove && stressedContract) {
+          const newExpDate = new Date(stressedContract.expirationDate);
           newExpDate.setDate(newExpDate.getDate() + scenario.timeMove);
           stressedContract = {
-            ...position.contract,
-            expirationDate: newExpDate.toISOString().split('T')[0]
+            ...stressedContract,
+            expirationDate: newExpDate.toISOString().split('T')[0] || stressedContract.expirationDate
           };
         }
 
-        const stressedPrice = this.greeksCalculator.calculateOptionPrice(
+        const stressedPrice = stressedContract ? this.greeksCalculator.calculateOptionPrice(
           stressedContract,
           stressedConditions.underlyingPrice,
           stressedConditions.impliedVolatility,
           stressedConditions.riskFreeRate
-        );
+        ) : 0;
 
-        const currentPrice = position.marketValue / position.quantity;
+        const currentPrice = position.currentValue / position.quantity;
         const positionPnL = (stressedPrice - currentPrice) * position.quantity * 100;
         totalPnL += positionPnL;
       }
@@ -367,8 +367,11 @@ export class OptionsRiskManager {
     let totalRho = 0;
 
     for (const position of positions) {
+      const contract = position.legs[0]?.contract;
+      if (!contract) continue;
+      
       const greeks = await this.greeksCalculator.calculateOptionGreeks(
-        position.contract,
+        contract,
         marketConditions.underlyingPrice,
         marketConditions.impliedVolatility || 0.2,
         marketConditions.riskFreeRate || 0.05
@@ -413,7 +416,7 @@ export class OptionsRiskManager {
     }, 0);
 
     // Leverage calculation
-    const totalPositionValue = positions.reduce((sum, pos) => sum + Math.abs(pos.marketValue), 0);
+    const totalPositionValue = positions.reduce((sum, pos) => sum + Math.abs(pos.currentValue), 0);
     const leverage = totalPositionValue / portfolioValue;
 
     return {
@@ -438,11 +441,13 @@ export class OptionsRiskManager {
     
     // Calculate exposure by underlying
     for (const position of positions) {
-      const underlying = position.contract.underlying;
+      const underlying = position.legs[0]?.contract.underlying;
+      if (!underlying) continue;
+      
       if (!underlyingExposure[underlying]) {
         underlyingExposure[underlying] = 0;
       }
-      underlyingExposure[underlying] += Math.abs(position.marketValue);
+      underlyingExposure[underlying] += Math.abs(position.currentValue);
     }
 
     // Convert to percentages and find top exposures
@@ -551,7 +556,7 @@ export class OptionsRiskManager {
   ): MarginAnalysis {
     const totalMarginUsed = positions.reduce((sum, pos) => {
       // Simplified margin calculation
-      return sum + Math.abs(pos.marketValue) * 0.2; // 20% margin requirement estimate
+      return sum + Math.abs(pos.currentValue) * 0.2; // 20% margin requirement estimate
     }, 0);
 
     const marginUtilization = totalMarginUsed / accountInfo.buyingPower;
@@ -633,7 +638,7 @@ export class OptionsRiskManager {
   }
 
   private calculatePortfolioValue(positions: OptionsPosition[]): number {
-    return positions.reduce((sum, pos) => sum + pos.marketValue, 0);
+    return positions.reduce((sum, pos) => sum + pos.currentValue, 0);
   }
 
   private calculateSharpeRatio(positions: OptionsPosition[]): number {

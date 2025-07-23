@@ -3,6 +3,8 @@ import { UnifiedTradeProcessor } from '../llm/unified-trade-processor';
 import { AlpacaAdapter } from '../brokers/alpaca-adapter';
 import { ValidationService } from '../trading/validation-service';
 import { TradeIntent, UnifiedTradeIntent, OptionsTradeIntent } from '../types';
+import { IntentRecognitionService } from '../services/intent-recognition-service';
+import { StrategyRecommendationEngine, UserProfile } from '../services/strategy-recommendation-engine';
 
 /**
  * Optimized API routes for core trading functionality
@@ -18,12 +20,16 @@ export class OptimizedTradeRoutes {
   private tradeProcessor: UnifiedTradeProcessor;
   private broker: AlpacaAdapter;
   private validator: ValidationService;
+  private intentRecognition: IntentRecognitionService;
+  private recommendationEngine: StrategyRecommendationEngine;
   private router: express.Router;
 
   constructor() {
     this.tradeProcessor = new UnifiedTradeProcessor();
     this.broker = new AlpacaAdapter();
     this.validator = new ValidationService(this.broker);
+    this.intentRecognition = new IntentRecognitionService();
+    this.recommendationEngine = new StrategyRecommendationEngine();
     this.router = express.Router();
     this.setupRoutes();
   }
@@ -67,6 +73,15 @@ export class OptimizedTradeRoutes {
     
     // Trading patterns endpoint (for autocomplete)
     this.router.get('/patterns', this.handleTradingPatterns.bind(this));
+    
+    // Options endpoints
+    this.router.get('/options/chain/:symbol', this.handleOptionsChain.bind(this));
+    this.router.get('/options/quote/:optionSymbol', this.handleOptionsQuote.bind(this));
+    this.router.get('/options/positions', this.handleOptionsPositions.bind(this));
+    
+    // Strategy recommendation endpoints
+    this.router.post('/strategies/recommend', this.handleStrategyRecommendation.bind(this));
+    this.router.post('/strategies/analyze', this.handleIntentAnalysis.bind(this));
   }
 
   /**
@@ -449,6 +464,171 @@ export class OptimizedTradeRoutes {
         totalPatterns: patterns.length
       }
     });
+  }
+
+  /**
+   * Get options chain for a symbol
+   */
+  private async handleOptionsChain(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { symbol } = req.params;
+      const { expiration } = req.query;
+      
+      if (!symbol || !/^[A-Z]{1,5}$/.test(symbol.toUpperCase())) {
+        res.status(400).json({
+          success: false,
+          error: 'Valid stock symbol is required',
+          code: 'INVALID_SYMBOL'
+        });
+        return;
+      }
+
+      const optionsChain = await this.broker.getOptionsChain(
+        symbol.toUpperCase(), 
+        expiration as string | undefined
+      );
+      
+      res.json({
+        success: true,
+        data: optionsChain
+      });
+
+    } catch (error) {
+      this.handleError(res, error, 'OPTIONS_CHAIN_ERROR');
+    }
+  }
+
+  /**
+   * Get quote for a specific option contract
+   */
+  private async handleOptionsQuote(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { optionSymbol } = req.params;
+      
+      if (!optionSymbol) {
+        res.status(400).json({
+          success: false,
+          error: 'Option symbol is required',
+          code: 'MISSING_OPTION_SYMBOL'
+        });
+        return;
+      }
+
+      const optionQuote = await this.broker.getOptionsQuote(optionSymbol);
+      
+      res.json({
+        success: true,
+        data: optionQuote
+      });
+
+    } catch (error) {
+      this.handleError(res, error, 'OPTIONS_QUOTE_ERROR');
+    }
+  }
+
+  /**
+   * Get current options positions
+   */
+  private async handleOptionsPositions(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const optionsPositions = await this.broker.getOptionsPositions();
+      
+      res.json({
+        success: true,
+        data: {
+          positions: optionsPositions,
+          totalPositions: optionsPositions.length,
+          hasOptions: optionsPositions.length > 0
+        }
+      });
+
+    } catch (error) {
+      this.handleError(res, error, 'OPTIONS_POSITIONS_ERROR');
+    }
+  }
+
+  /**
+   * Get strategy recommendations based on natural language command and user profile
+   */
+  private async handleStrategyRecommendation(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { command, userProfile } = req.body;
+      
+      if (!command || !command.trim()) {
+        res.status(400).json({
+          success: false,
+          error: 'Command is required',
+          code: 'MISSING_COMMAND'
+        });
+        return;
+      }
+
+      // Default user profile if not provided
+      const profile: UserProfile = {
+        experienceLevel: 'intermediate',
+        riskTolerance: 'medium',
+        preferredComplexity: 'moderate',
+        capitalAvailable: 10000,
+        tradingObjective: 'growth',
+        timeHorizon: 'medium_term',
+        ...userProfile
+      };
+
+      const startTime = Date.now();
+      const recommendations = await this.recommendationEngine.recommendStrategy(command, profile);
+      const processingTime = Date.now() - startTime;
+
+      res.json({
+        success: true,
+        data: {
+          recommendations,
+          processingTime,
+          userProfile: profile,
+          totalRecommendations: recommendations.length
+        }
+      });
+
+    } catch (error) {
+      this.handleError(res, error, 'STRATEGY_RECOMMENDATION_ERROR');
+    }
+  }
+
+  /**
+   * Analyze intent from natural language command
+   */
+  private async handleIntentAnalysis(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { command } = req.body;
+      
+      if (!command || !command.trim()) {
+        res.status(400).json({
+          success: false,
+          error: 'Command is required',
+          code: 'MISSING_COMMAND'
+        });
+        return;
+      }
+
+      const startTime = Date.now();
+      const recognizedIntent = await this.intentRecognition.parseCommand(command);
+      const processingTime = Date.now() - startTime;
+
+      // Generate summary
+      const summary = this.intentRecognition.getStrategyRecommendationSummary(recognizedIntent);
+
+      res.json({
+        success: true,
+        data: {
+          intent: recognizedIntent,
+          summary,
+          processingTime,
+          suggestedStrategies: recognizedIntent.suggestedStrategies.length
+        }
+      });
+
+    } catch (error) {
+      this.handleError(res, error, 'INTENT_ANALYSIS_ERROR');
+    }
   }
 
   /**

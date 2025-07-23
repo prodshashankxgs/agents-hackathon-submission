@@ -4,7 +4,6 @@ import {
   TrendingUpIcon, 
   BarChart3Icon, 
   PieChartIcon,
-  CalendarDaysIcon,
   ArrowUpIcon,
   ArrowDownIcon,
   ActivityIcon,
@@ -49,8 +48,8 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
         
         {/* Modern loading skeleton */}
         <div className="mt-6 sm:mt-8 space-y-4 sm:space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            {[...Array(4)].map((_, i) => (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+            {[...Array(3)].map((_, i) => (
               <div key={i} className="brokerage-card p-4 sm:p-6">
                 <div className="skeleton h-3 sm:h-4 w-20 sm:w-24 mb-2 sm:mb-3 rounded"></div>
                 <div className="skeleton h-6 sm:h-8 w-24 sm:w-32 mb-1.5 sm:mb-2 rounded"></div>
@@ -95,8 +94,6 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
       value: formatCurrency(accountInfo.portfolioValue),
       icon: WalletIcon,
       description: 'Total portfolio value',
-      trend: totalPnL >= 0 ? 'up' : 'down',
-      trendValue: formatPercentage(totalPnLPercent),
       color: 'gray',
       accentColor: 'gray'
     },
@@ -105,8 +102,8 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
       value: formatCurrency(accountInfo.buyingPower),
       icon: DollarSignIcon,
       description: 'Available for trading',
-      color: 'green',
-      accentColor: 'green'
+      color: 'blue',
+      accentColor: 'blue'
     },
     {
       title: 'Unrealized P&L',
@@ -117,15 +114,6 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
       color: totalPnL >= 0 ? 'green' : 'red',
       accentColor: totalPnL >= 0 ? 'green' : 'red',
       isHighlighted: true
-    },
-    {
-      title: 'Day Trades',
-      value: `${accountInfo.dayTradeCount}/3`,
-      icon: CalendarDaysIcon,
-      description: 'PDT limit remaining',
-      color: accountInfo.dayTradeCount >= 3 ? 'red' : 'gray',
-      accentColor: accountInfo.dayTradeCount >= 3 ? 'red' : 'gray',
-      showWarning: accountInfo.dayTradeCount >= 3
     }
   ]
 
@@ -254,7 +242,7 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
               </div>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
               {metrics.map((metric, index) => {
                 const Icon = metric.icon
                 const isSelected = selectedMetric === index
@@ -270,16 +258,10 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
                       <div className={`p-3 rounded-xl transition-all duration-300 ${
                         metric.isHighlighted 
                           ? metric.color === 'green' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'
-                          : 'bg-gray-50 text-gray-600'
+                          : metric.color === 'blue' ? 'bg-blue-50 text-blue-600' : 'bg-gray-50 text-gray-600'
                       }`}>
                         <Icon className="w-5 h-5" />
                       </div>
-                      
-                      {metric.showWarning && (
-                        <div className="p-1.5 bg-red-50 rounded-lg">
-                          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                        </div>
-                      )}
                     </div>
                     
                     <div>
@@ -353,7 +335,7 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
             </div>
           </div>
           
-          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 lg:gap-6">
             {metrics.map((metric, index) => {
               const Icon = metric.icon
               const isSelected = selectedMetric === index
@@ -369,16 +351,10 @@ export function PortfolioOverview({ accountInfo }: PortfolioOverviewProps) {
                     <div className={`p-2 sm:p-2.5 lg:p-3 rounded-lg sm:rounded-xl transition-all duration-300 ${
                       metric.isHighlighted 
                         ? metric.color === 'green' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'
-                        : 'bg-gray-50 text-gray-600'
+                        : metric.color === 'blue' ? 'bg-blue-50 text-blue-600' : 'bg-gray-50 text-gray-600'
                     }`}>
                       <Icon className="w-3.5 sm:w-4 lg:w-5 h-3.5 sm:h-4 lg:h-5" />
                     </div>
-                    
-                    {metric.showWarning && (
-                      <div className="p-1 sm:p-1.5 bg-red-50 rounded-lg">
-                        <div className="w-1.5 sm:w-2 h-1.5 sm:h-2 bg-red-500 rounded-full animate-pulse" />
-                      </div>
-                    )}
                   </div>
                   
                   <div>

@@ -8,7 +8,7 @@ The application has been refactored into a clean, layered architecture following
 
 ```
 ┌─────────────────────────────────────────┐
-│              Presentation Layer          │
+│              Presentation Layer         │
 │  ┌─────────────┐    ┌─────────────────┐ │
 │  │ REST API    │    │ CLI Interface   │ │
 │  │ Controllers │    │ Commands        │ │
@@ -21,16 +21,16 @@ The application has been refactored into a clean, layered architecture following
 │  └─────────────┘    └─────────────────┘ │
 ├─────────────────────────────────────────┤
 │              Domain Layer               │
-│  ┌─────────────┐ ┌──────────┐ ┌────────┐ │
-│  │ Parsing     │ │ Validation│ │ Risk   │ │
-│  │ Service     │ │ Service   │ │ Mgmt   │ │
-│  └─────────────┘ └──────────┘ └────────┘ │
+│  ┌─────────────┐ ┌──────────┐ ┌───────┐ │
+│  │ Parsing     │ │Validation│ │Risk   │ │
+│  │ Service     │ │ Service  │ │Mgmt   │ │
+│  └─────────────┘ └──────────┘ └───────┘ │
 ├─────────────────────────────────────────┤
 │              Infrastructure Layer       │
-│  ┌─────────────┐ ┌──────────┐ ┌────────┐ │
-│  │ Alpaca      │ │ OpenAI   │ │ Cache  │ │
-│  │ Adapter     │ │ Client   │ │ Service│ │
-│  └─────────────┘ └──────────┘ └────────┘ │
+│  ┌─────────────┐ ┌──────────┐ ┌───────┐ │
+│  │ Alpaca      │ │ OpenAI   │ │ Cache │ │
+│  │ Adapter     │ │ Client   │ │Service│ │
+│  └─────────────┘ └──────────┘ └───────┘ │
 └─────────────────────────────────────────┘
 ```
 
@@ -243,19 +243,19 @@ describe('ParsingService', () => {
 ```
 
 ### Integration Testing
-
 ```typescript
-// Example: Testing the trade orchestrator
-import { TradeOrchestrator } from '../application/orchestrators/TradeOrchestrator';
+// Example
+import {TradeOrchestrator} 
 
 describe('TradeOrchestrator Integration', () => {
-  it('should execute complete trade workflow', async () => {
-    // Use real dependencies or sophisticated mocks
+  it('should execute complete trade workflow, async () => {
+    // Use real dependencies or  mocks
     const result = await tradeOrchestrator.executeTrade('buy $100 AAPL');
-    expect(result.success).toBe(true);
+    expect(result.success). toBe(true);
   });
 });
 ```
+
 
 ## 🎛️ Configuration
 
@@ -323,14 +323,5 @@ When contributing to the layered architecture:
 3. **Write tests**: Each layer should have comprehensive tests
 4. **Document interfaces**: Keep the core interfaces well-documented
 5. **Error handling**: Use the appropriate error types for each layer
-
-## 📚 Additional Resources
-
-- [Domain-Driven Design Principles](https://martinfowler.com/bliki/DomainDrivenDesign.html)
-- [Clean Architecture](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html)
-- [Dependency Injection Patterns](https://martinfowler.com/articles/injection.html)
-- [Event-Driven Architecture](https://martinfowler.com/articles/201701-event-driven.html)
-
----
 
 The layered architecture provides a solid foundation for building scalable, maintainable trading applications. The clean separation of concerns makes it easy to understand, test, and extend the application as requirements evolve.
