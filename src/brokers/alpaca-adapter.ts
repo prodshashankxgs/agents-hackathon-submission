@@ -104,26 +104,34 @@ export class AlpacaAdapter implements OptionsBrokerAdapter {
         warnings.push('Market is currently closed. Order will be queued for next market open.');
       }
       
-      // Only check buying power if we have a reliable cost estimate
-      if (marketData && estimatedCost > buyingPower) {
-        errors.push(`Insufficient buying power. Available: $${buyingPower.toFixed(2)}, Required: $${estimatedCost.toFixed(2)}`);
-      } else if (!marketData && order.amountType === 'dollars' && order.amount > buyingPower) {
-        errors.push(`Insufficient buying power. Available: $${buyingPower.toFixed(2)}, Required: $${order.amount.toFixed(2)}`);
+      // Different validation logic for buy vs sell orders
+      if (order.action === 'sell') {
+        // For sell orders, validate position ownership instead of buying power
+        const sellValidation = await this.validateSellOrder(order, estimatedCost, estimatedShares, currentPrice);
+        errors.push(...sellValidation.errors);
+        warnings.push(...sellValidation.warnings);
+      } else {
+        // For buy orders, check buying power as before
+        if (marketData && estimatedCost > buyingPower) {
+          errors.push(`Insufficient buying power. Available: $${buyingPower.toFixed(2)}, Required: $${estimatedCost.toFixed(2)}`);
+        } else if (!marketData && order.amountType === 'dollars' && order.amount > buyingPower) {
+          errors.push(`Insufficient buying power. Available: $${buyingPower.toFixed(2)}, Required: $${order.amount.toFixed(2)}`);
+        }
+        
+        // Check position size limits for buy orders
+        const orderAmount = order.amountType === 'dollars' ? order.amount : estimatedCost;
+        if (orderAmount > config.maxPositionSize) {
+          errors.push(`Order exceeds maximum position size of $${config.maxPositionSize}`);
+        }
+        
+        // Check daily spending limit for buy orders
+        const todaySpending = await this.getTodaySpending();
+        if (orderAmount > 0 && todaySpending + orderAmount > config.maxDailySpending) {
+          errors.push(`Order would exceed daily spending limit of $${config.maxDailySpending}`);
+        }
       }
       
-      // Check position size limits
-      const orderAmount = order.amountType === 'dollars' ? order.amount : estimatedCost;
-      if (orderAmount > config.maxPositionSize) {
-        errors.push(`Order exceeds maximum position size of $${config.maxPositionSize}`);
-      }
-      
-      // Check daily spending limit
-      const todaySpending = await this.getTodaySpending();
-      if (orderAmount > 0 && todaySpending + orderAmount > config.maxDailySpending) {
-        errors.push(`Order would exceed daily spending limit of $${config.maxDailySpending}`);
-      }
-      
-      // Check if symbol is tradable
+      // Check if symbol is tradable (applies to both buy and sell)
       try {
         const asset = await this.alpaca.getAsset(order.symbol);
         if (!asset.tradable) {
@@ -151,6 +159,91 @@ export class AlpacaAdapter implements OptionsBrokerAdapter {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
+  }
+
+  /**
+   * Validate sell orders by checking position ownership
+   */
+  private async validateSellOrder(
+    order: TradeIntent, 
+    estimatedCost: number, 
+    estimatedShares: number, 
+    currentPrice: number
+  ): Promise<{ errors: string[]; warnings: string[] }> {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    try {
+      // Get current positions - use cached data if available from getAccountInfo
+      const positions = await this.alpaca.getPositions();
+      const position = positions.find((pos: any) => pos.symbol === order.symbol);
+
+      if (!position) {
+        errors.push(`No position found for ${order.symbol}. You must own shares to sell them.`);
+        return { errors, warnings };
+      }
+
+      const ownedShares = parseFloat(position.qty);
+      const ownedMarketValue = parseFloat(position.market_value);
+
+      // Handle short positions (negative quantities)
+      if (ownedShares <= 0) {
+        if (ownedShares < 0) {
+          warnings.push(`You have a short position in ${order.symbol}. Selling will increase your short position.`);
+        } else {
+          errors.push(`No long position found for ${order.symbol}. You must own shares to sell them.`);
+          return { errors, warnings };
+        }
+      }
+
+      // Validate the sell amount against owned position
+      if (order.amountType === 'dollars') {
+        // For dollar-based sells, check against market value
+        const requestedDollarAmount = order.amount;
+        
+        if (requestedDollarAmount > ownedMarketValue) {
+          errors.push(
+            `Insufficient ${order.symbol} position. You own $${ownedMarketValue.toFixed(2)} worth, ` +
+            `but requested to sell $${requestedDollarAmount.toFixed(2)}.`
+          );
+        }
+
+        // Warning if selling close to full position
+        if (requestedDollarAmount > ownedMarketValue * 0.95) {
+          warnings.push(`This will sell most or all of your ${order.symbol} position.`);
+        }
+      } else {
+        // For share-based sells, check against owned shares
+        const requestedShares = order.amount;
+        
+        if (requestedShares > ownedShares) {
+          errors.push(
+            `Insufficient ${order.symbol} shares. You own ${ownedShares} shares, ` +
+            `but requested to sell ${requestedShares} shares.`
+          );
+        }
+
+        // Warning if selling close to full position
+        if (requestedShares > ownedShares * 0.95) {
+          warnings.push(`This will sell most or all of your ${order.symbol} position.`);
+        }
+      }
+
+      // Additional context information
+      if (currentPrice > 0 && order.amountType === 'dollars') {
+        const estimatedSellShares = order.amount / currentPrice;
+        warnings.push(
+          `At current price $${currentPrice.toFixed(2)}, this will sell approximately ${estimatedSellShares.toFixed(2)} shares ` +
+          `out of your ${ownedShares} shares.`
+        );
+      }
+
+    } catch (error) {
+      console.error('Error validating sell order:', error);
+      errors.push('Unable to validate position. Please try again.');
+    }
+
+    return { errors, warnings };
   }
 
   async executeOrder(order: TradeIntent): Promise<TradeResult> {

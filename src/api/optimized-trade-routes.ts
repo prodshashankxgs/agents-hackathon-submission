@@ -5,6 +5,7 @@ import { ValidationService } from '../trading/validation-service';
 import { TradeIntent, UnifiedTradeIntent, OptionsTradeIntent } from '../types';
 import { IntentRecognitionService } from '../services/intent-recognition-service';
 import { StrategyRecommendationEngine, UserProfile } from '../services/strategy-recommendation-engine';
+import { TickerSearchService } from '../services/ticker-search-service';
 
 /**
  * Optimized API routes for core trading functionality
@@ -22,6 +23,7 @@ export class OptimizedTradeRoutes {
   private validator: ValidationService;
   private intentRecognition: IntentRecognitionService;
   private recommendationEngine: StrategyRecommendationEngine;
+  private tickerSearch: TickerSearchService;
   private router: express.Router;
 
   constructor() {
@@ -30,6 +32,7 @@ export class OptimizedTradeRoutes {
     this.validator = new ValidationService(this.broker);
     this.intentRecognition = new IntentRecognitionService();
     this.recommendationEngine = new StrategyRecommendationEngine();
+    this.tickerSearch = new TickerSearchService();
     this.router = express.Router();
     this.setupRoutes();
   }
@@ -82,6 +85,12 @@ export class OptimizedTradeRoutes {
     // Strategy recommendation endpoints
     this.router.post('/strategies/recommend', this.handleStrategyRecommendation.bind(this));
     this.router.post('/strategies/analyze', this.handleIntentAnalysis.bind(this));
+    
+    // Ticker search endpoints
+    this.router.get('/tickers/search', this.handleTickerSearch.bind(this));
+    this.router.get('/tickers/info/:symbol', this.handleTickerInfo.bind(this));
+    this.router.get('/tickers/popular', this.handlePopularTickers.bind(this));
+    this.router.get('/tickers/history/:symbol', this.handleTickerHistory.bind(this));
   }
 
   /**
@@ -102,7 +111,7 @@ export class OptimizedTradeRoutes {
 
       const startTime = Date.now();
       
-      // Use unified trade processor
+      // Use a unified trade processor
       const parseResult = await this.tradeProcessor.processTradeCommand(command);
       const totalTime = Date.now() - startTime;
 
@@ -628,6 +637,220 @@ export class OptimizedTradeRoutes {
 
     } catch (error) {
       this.handleError(res, error, 'INTENT_ANALYSIS_ERROR');
+    }
+  }
+
+  /**
+   * Search for tickers with fuzzy matching
+   */
+  private async handleTickerSearch(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { q: query, limit = 10, includeMarketData = false } = req.query;
+      
+      if (!query || typeof query !== 'string') {
+        res.status(400).json({
+          success: false,
+          error: 'Search query parameter "q" is required',
+          code: 'MISSING_QUERY'
+        });
+        return;
+      }
+
+      const startTime = Date.now();
+      
+      let results;
+      if (includeMarketData === 'true') {
+        results = await this.tickerSearch.getTickerSuggestionsWithMarketData(
+          query as string, 
+          parseInt(limit as string) || 10
+        );
+      } else {
+        results = await this.tickerSearch.searchTickers(
+          query as string, 
+          parseInt(limit as string) || 10
+        );
+      }
+
+      const searchTime = Date.now() - startTime;
+
+      res.json({
+        success: true,
+        data: {
+          query,
+          results,
+          totalResults: results.length,
+          searchTime,
+          includeMarketData: includeMarketData === 'true'
+        }
+      });
+
+    } catch (error) {
+      this.handleError(res, error, 'TICKER_SEARCH_ERROR');
+    }
+  }
+
+  /**
+   * Get detailed information about a specific ticker
+   */
+  private async handleTickerInfo(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { symbol } = req.params;
+      
+      if (!symbol || !/^[A-Z]{1,5}(\.[A-Z])?$/.test(symbol.toUpperCase())) {
+        res.status(400).json({
+          success: false,
+          error: 'Valid stock symbol is required',
+          code: 'INVALID_SYMBOL'
+        });
+        return;
+      }
+
+      const startTime = Date.now();
+      
+      // Get ticker info and market data in parallel
+      const [tickerInfo, marketData] = await Promise.all([
+        this.tickerSearch.getTickerInfo(symbol.toUpperCase()),
+        this.broker.getMarketData(symbol.toUpperCase()).catch(() => null)
+      ]);
+
+      const processingTime = Date.now() - startTime;
+
+      if (!tickerInfo) {
+        res.status(404).json({
+          success: false,
+          error: `Ticker ${symbol.toUpperCase()} not found`,
+          code: 'TICKER_NOT_FOUND'
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: {
+          ticker: tickerInfo,
+          marketData,
+          processingTime
+        }
+      });
+
+    } catch (error) {
+      this.handleError(res, error, 'TICKER_INFO_ERROR');
+    }
+  }
+
+  /**
+   * Get popular tickers
+   */
+  private async handlePopularTickers(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { limit = 20 } = req.query;
+      
+      const startTime = Date.now();
+      const results = await this.tickerSearch.getPopularTickers(parseInt(limit as string) || 20);
+      const processingTime = Date.now() - startTime;
+
+      res.json({
+        success: true,
+        data: {
+          results,
+          totalResults: results.length,
+          processingTime
+        }
+      });
+
+    } catch (error) {
+      this.handleError(res, error, 'POPULAR_TICKERS_ERROR');
+    }
+  }
+
+  /**
+   * Get historical price data for a ticker
+   */
+  private async handleTickerHistory(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const { symbol } = req.params;
+      const { period = '1M', timeframe = '1D' } = req.query;
+      
+      if (!symbol || !/^[A-Z]{1,5}(\.[A-Z])?$/.test(symbol.toUpperCase())) {
+        res.status(400).json({
+          success: false,
+          error: 'Valid stock symbol is required',
+          code: 'INVALID_SYMBOL'
+        });
+        return;
+      }
+
+      const startTime = Date.now();
+      
+      // Get historical bars data using Alpaca
+      const endDate = new Date();
+      let startDate = new Date();
+      
+      // Calculate start date based on period
+      switch (period) {
+        case '1D':
+          startDate.setDate(endDate.getDate() - 1);
+          break;
+        case '1W':
+          startDate.setDate(endDate.getDate() - 7);
+          break;
+        case '1M':
+          startDate.setMonth(endDate.getMonth() - 1);
+          break;
+        case '3M':
+          startDate.setMonth(endDate.getMonth() - 3);
+          break;
+        case '6M':
+          startDate.setMonth(endDate.getMonth() - 6);
+          break;
+        case '1Y':
+          startDate.setFullYear(endDate.getFullYear() - 1);
+          break;
+        case '5Y':
+          startDate.setFullYear(endDate.getFullYear() - 5);
+          break;
+        default:
+          startDate.setMonth(endDate.getMonth() - 1);
+      }
+
+      const bars = await (this.broker as any).alpaca.getBarsV2(symbol.toUpperCase(), {
+        start: startDate.toISOString(),
+        end: endDate.toISOString(),
+        timeframe: timeframe as string,
+        limit: 1000,
+        adjustment: 'raw',
+        page_token: undefined,
+        sort: 'asc'
+      });
+
+      const historicalData = [];
+      for await (const bar of bars) {
+        historicalData.push({
+          timestamp: bar.Timestamp || bar.t,
+          open: bar.OpenPrice || bar.o,
+          high: bar.HighPrice || bar.h,
+          low: bar.LowPrice || bar.l,
+          close: bar.ClosePrice || bar.c,
+          volume: bar.Volume || bar.v
+        });
+      }
+
+      const processingTime = Date.now() - startTime;
+
+      res.json({
+        success: true,
+        data: {
+          symbol: symbol.toUpperCase(),
+          period,
+          timeframe,
+          data: historicalData,
+          totalBars: historicalData.length,
+          processingTime
+        }
+      });
+
+    } catch (error) {
+      this.handleError(res, error, 'TICKER_HISTORY_ERROR');
     }
   }
 
