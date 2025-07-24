@@ -17,6 +17,7 @@ export class CacheService {
   private intentCache = new Map<string, ParsedIntent>();
   private validationCache = new Map<string, CacheEntry<any>>();
   private accountInfoCache: CacheEntry<any> | null = null;
+  private genericCache = new Map<string, CacheEntry<any>>();
   
   private readonly DEFAULT_TTL = 30000; // 30 seconds
   private readonly INTENT_TTL = 300000; // 5 minutes
@@ -160,6 +161,7 @@ export class CacheService {
     this.marketDataCache.clear();
     this.intentCache.clear();
     this.validationCache.clear();
+    this.genericCache.clear();
     this.accountInfoCache = null;
   }
 
@@ -187,6 +189,13 @@ export class CacheService {
     for (const [key, entry] of this.validationCache) {
       if (now - entry.timestamp > entry.ttl) {
         this.validationCache.delete(key);
+      }
+    }
+    
+    // Clear expired generic cache entries
+    for (const [key, entry] of this.genericCache) {
+      if (now - entry.timestamp > entry.ttl) {
+        this.genericCache.delete(key);
       }
     }
     
@@ -253,12 +262,39 @@ export class CacheService {
   }
 
   /**
+   * Generic cache getter
+   */
+  get<T>(key: string): T | null {
+    const entry = this.genericCache.get(key);
+    if (!entry) return null;
+    
+    if (Date.now() - entry.timestamp > entry.ttl) {
+      this.genericCache.delete(key);
+      return null;
+    }
+    
+    return entry.data;
+  }
+
+  /**
+   * Generic cache setter
+   */
+  set<T>(key: string, data: T, ttl: number = this.DEFAULT_TTL): void {
+    this.genericCache.set(key, {
+      data,
+      timestamp: Date.now(),
+      ttl
+    });
+  }
+
+  /**
    * Get cache statistics
    */
   getStats(): {
     marketData: number;
     intents: number;
     validations: number;
+    generic: number;
     accountInfo: boolean;
     memoryUsage: number;
   } {
@@ -266,13 +302,15 @@ export class CacheService {
     const marketDataSize = this.marketDataCache.size * 1024; // ~1KB per entry
     const intentSize = this.intentCache.size * 512; // ~512B per entry
     const validationSize = this.validationCache.size * 256; // ~256B per entry
+    const genericSize = this.genericCache.size * 512; // ~512B per entry
     
     return {
       marketData: this.marketDataCache.size,
       intents: this.intentCache.size,
       validations: this.validationCache.size,
+      generic: this.genericCache.size,
       accountInfo: this.accountInfoCache !== null,
-      memoryUsage: marketDataSize + intentSize + validationSize
+      memoryUsage: marketDataSize + intentSize + validationSize + genericSize
     };
   }
 }
