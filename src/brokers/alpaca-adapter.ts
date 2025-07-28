@@ -718,6 +718,84 @@ export class AlpacaAdapter implements OptionsBrokerAdapter {
     }
   }
 
+  async getHistoricalData(symbol: string, startDate: string, endDate: string, timeframe: string = '1Day'): Promise<any[]> {
+    try {
+      console.log(`Fetching historical bars for ${symbol}: ${startDate} to ${endDate}, timeframe: ${timeframe}`);
+      
+      // Map frontend timeframes to Alpaca timeframes
+      let alpacaTimeframe = timeframe;
+      switch (timeframe) {
+        case '1H':
+          alpacaTimeframe = '1Hour';
+          break;
+        case '1D':
+          alpacaTimeframe = '1Day';
+          break;
+        case '1W':
+          alpacaTimeframe = '1Week';
+          break;
+        case '1M':
+          alpacaTimeframe = '1Month';
+          break;
+        default:
+          alpacaTimeframe = timeframe;
+      }
+
+      const bars = await this.alpaca.getBarsV2(symbol, {
+        start: startDate,
+        end: endDate,
+        timeframe: alpacaTimeframe,
+        limit: 1000,
+        adjustment: 'raw',
+        page_token: undefined,
+        sort: 'asc'
+      });
+
+      const historicalData = [];
+      for await (const bar of bars) {
+        const barData = bar as any;
+        console.log('Raw bar data:', JSON.stringify(barData, null, 2));
+        
+        // Check if we have actual price data
+        const open = barData.o || barData.Open;
+        const high = barData.h || barData.High;
+        const low = barData.l || barData.Low;
+        const close = barData.c || barData.Close;
+        
+        if (!open && !high && !low && !close) {
+          console.warn(`No price data available for ${symbol} at ${barData.t || barData.Timestamp}`);
+          continue; // Skip this bar if no price data
+        }
+        
+        const dataPoint = {
+          date: barData.t || barData.Timestamp,
+          timestamp: barData.t || barData.Timestamp,
+          open: open || close || 0,
+          high: high || close || 0,
+          low: low || close || 0,
+          close: close || 0,
+          price: close || 0,
+          volume: barData.v || barData.Volume || 0
+        };
+        
+        console.log('Processed data point:', JSON.stringify(dataPoint, null, 2));
+        historicalData.push(dataPoint);
+      }
+
+      console.log(`Successfully fetched ${historicalData.length} historical data points for ${symbol}`);
+      
+      // If we have no price data at all, throw an error
+      if (historicalData.length === 0 || historicalData.every(d => d.price === 0)) {
+        throw new BrokerError(`No historical price data available for ${symbol}. This may be due to paper trading API limitations or market closure.`);
+      }
+      
+      return historicalData;
+    } catch (error) {
+      console.error(`Error fetching historical data for ${symbol}:`, error);
+      throw new BrokerError(`Failed to get historical data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
   private async getTodaySpending(): Promise<number> {
     try {
       const today = new Date();
@@ -927,7 +1005,7 @@ export class AlpacaAdapter implements OptionsBrokerAdapter {
       
       const contract: OptionContract = {
         symbol: order.underlying,
-        optionSymbol: optionSymbol,
+        optionSymbol,
         contractType: order.contractType,
         strikePrice: order.strikePrice,
         expirationDate: order.expirationDate,

@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
+import { Suspense } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { 
   SparklesIcon, 
@@ -18,11 +19,12 @@ import {
   ArrowUpIcon
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { apiService, type HedgeRecommendation, type MarketAnalysis, type ThirteenFPortfolio, type PortfolioBasket } from '@/lib/api'
+import { apiService, type HedgeRecommendation, type MarketAnalysis, type ThirteenFPortfolio, type PortfolioBasket, type MarketData, tradingWS } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
 import { type ProcessingStep } from './ProcessingSteps'
-import { ResponsiveContainer, PieChart, Pie, Tooltip, Cell } from 'recharts'
+import { ResponsiveContainer as RechartsContainer, PieChart, Pie, Tooltip as PieTooltip, Cell } from 'recharts'
 import { OptionsWidget } from './OptionsWidget'
+import StockWidget from './StockPage'
 
 interface ParsedCommand {
   action: 'buy' | 'sell'
@@ -76,14 +78,43 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
   const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>([])
   const [currentStep, setCurrentStep] = useState(-1)
   const [showProcessingContainer, setShowProcessingContainer] = useState(false)
-  const [requestType, setRequestType] = useState<'trade' | 'hedge' | 'analysis' | 'recommendation' | '13f' | 'politicians' | null>(null)
+  const [requestType, setRequestType] = useState<'trade' | 'hedge' | 'analysis' | 'recommendation' | 'info' | '13f' | 'politicians' | null>(null)
   
   // Options widget state
   const [showOptionsWidget, setShowOptionsWidget] = useState(false)
   const [optionsSymbol, setOptionsSymbol] = useState<string>('')
   
+  // Stock search state
+  const [selectedStock, setSelectedStock] = useState<string | null>(null)
+  const [showStockPage, setShowStockPage] = useState(false)
+  
   const inputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
+
+
+
+  // Function to detect if input is a stock symbol
+  const isStockSymbol = (input: string): boolean => {
+    const trimmed = input.trim().toUpperCase()
+    return /^[A-Z]{1,5}(\.[A-Z])?$/.test(trimmed) && !trimmed.includes(' ')
+  }
+
+  // Function to handle stock search
+  const handleStockSearch = (symbol: string) => {
+    const upperSymbol = symbol.toUpperCase()
+    setSelectedStock(upperSymbol)
+    setShowStockPage(true)
+    
+    // Subscribe to real-time updates
+    if (tradingWS) {
+      tradingWS.subscribe(upperSymbol, (_data: MarketData) => {
+        // This part of the logic is now handled by the StockPage component
+        // setRealtimeData(prev => ({ ...prev, [upperSymbol]: data }))
+      })
+    }
+  }
+
+
 
   // Helper functions for processing steps
   const initializeProcessingSteps = (type: string) => {
@@ -122,6 +153,12 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
         { id: 'scan', label: 'Scanning market opportunities', status: 'pending' },
         { id: 'evaluate', label: 'Evaluating risk/reward', status: 'pending' },
         { id: 'recommend', label: 'Finalizing recommendations', status: 'pending' }
+      ]
+    } else if (type === 'info') {
+      steps = [
+        { id: 'parse', label: 'Processing information request', status: 'pending' },
+        { id: 'fetch', label: 'Fetching stock data', status: 'pending' },
+        { id: 'display', label: 'Opening stock information', status: 'pending' }
       ]
     } else if (type === 'politicians') {
       steps = [
@@ -201,6 +238,14 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
     
     console.log('Submitting command:', command)
     
+    // Check if this is a stock symbol lookup
+    if (isStockSymbol(command)) {
+      console.log('Detected stock symbol:', command)
+      handleStockSearch(command)
+      setCommand('') // Clear the input
+      return
+    }
+    
     setIsLoading(true)
     setLoadingMessage('Understanding your request...')
     setParsedCommand(null)
@@ -212,6 +257,7 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
     setShowInvestmentInput(false)
     setInvestmentAmount('')
     setShowConfirmation(false)
+    setShowStockPage(false) // Hide stock info when processing new command
     resetProcessing()
     
     try {
@@ -338,6 +384,34 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
           inputRef.current?.focus()
         }, 3000)
         
+      } else if (type === 'info') {
+        await advanceToStep(0) // Processing request
+        
+        // Extract symbol from info intent
+        const infoIntent = intent as any
+        const symbol = infoIntent.symbol
+        
+        if (symbol) {
+          await advanceToStep(1) // Fetching stock data
+          await new Promise(resolve => setTimeout(resolve, 600))
+          
+          await advanceToStep(2) // Opening stock information
+          updateStepStatus(2, 'complete', `Opening ${symbol} information...`)
+          
+          // Open the stock page
+          setTimeout(() => {
+            handleStockSearch(symbol)
+            setIsLoading(false)
+            resetProcessing()
+            setCommand('')
+            inputRef.current?.focus()
+          }, 800)
+        } else {
+          setIsLoading(false)
+          resetProcessing()
+          setCommand('')
+          inputRef.current?.focus()
+        }
       } else if (type === '13f') {
         await advanceToStep(0) // Analyzing request
         
@@ -637,7 +711,7 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
                   onKeyPress={handleKeyPress}
-                  placeholder='Try "Buy $5000 of AAPL" or "Show me Warren Buffett&apos;s portfolio"'
+                  placeholder='Try "Buy $5000 of AAPL", "Pull up TSLA information", or "Show me Warren Buffett&apos;s portfolio"'
                   className="brokerage-input w-full px-4 sm:px-6 py-3 sm:py-4 pr-10 sm:pr-14 text-sm sm:text-base font-medium"
                   disabled={isLoading}
                 />
@@ -682,6 +756,7 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
                       requestType === 'hedge' ? 'bg-blue-600 hover:bg-blue-700' :
                       requestType === 'analysis' ? 'bg-purple-600 hover:bg-purple-700' :
                       requestType === 'recommendation' ? 'bg-amber-600 hover:bg-amber-700' :
+                      requestType === 'info' ? 'bg-green-600 hover:bg-green-700' :
                       requestType === '13f' ? 'bg-gray-900 hover:bg-gray-800' :
                       requestType === 'politicians' ? 'bg-gray-900 hover:bg-gray-800' :
                       'bg-gray-900 hover:bg-gray-800'
@@ -1191,7 +1266,7 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
                             {/* Sector Chart */}
                             <div className="h-48 sm:h-56 lg:h-64">
-                              <ResponsiveContainer width="100%" height="100%">
+                              <RechartsContainer width="100%" height="100%">
                                 <PieChart>
                                   <Pie
                                     data={thirteenFPortfolio.analytics.topSectors.slice(0, 8)}
@@ -1209,12 +1284,12 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
                                        <Cell key={`cell-${index}`} fill={`hsl(${240 + index * 30}, 70%, ${60 + index * 5}%)`} />
                                      ))}
                                   </Pie>
-                                  <Tooltip 
+                                  <PieTooltip 
                                     formatter={(value: number) => [`${value.toFixed(1)}%`, 'Allocation']}
-                                    labelFormatter={(label) => `Sector: ${label}`}
+                                    labelFormatter={(label: any) => `Sector: ${label}`}
                                   />
                                 </PieChart>
-                              </ResponsiveContainer>
+                              </RechartsContainer>
                             </div>
                             
                             {/* Sector Legend */}
@@ -1438,6 +1513,8 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
         </div>
       </div>
 
+
+
       {/* Modern Trade History */}
       {tradeHistory.length > 0 && (
         <div className="brokerage-card p-6">
@@ -1517,6 +1594,37 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
             onClose={() => setShowOptionsWidget(false)}
             accountInfo={accountInfo}
           />
+        </div>
+      )}
+
+      {/* Stock Information Widget */}
+      {showStockPage && selectedStock && (
+        <div className="slide-in-bottom">
+          <Suspense fallback={
+            <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-4">
+              <div className="flex items-center justify-center h-48">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                  <p className="text-sm text-gray-600">Loading stock information...</p>
+                </div>
+              </div>
+            </div>
+          }>
+            <StockWidget
+              symbol={selectedStock}
+              isOpen={showStockPage}
+              onClose={() => {
+                setShowStockPage(false)
+                setSelectedStock(null)
+              }}
+              onAddToPortfolio={(symbol: string) => {
+                setCommand(`Add ${symbol} to portfolio`)
+                setShowStockPage(false)
+                setSelectedStock(null)
+                inputRef.current?.focus()
+              }}
+            />
+          </Suspense>
         </div>
       )}
     </div>

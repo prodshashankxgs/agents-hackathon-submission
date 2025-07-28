@@ -9,7 +9,8 @@ import {
   MarketAnalysis,
   LLMError,
   AccountInfo,
-  Position
+  Position,
+  InfoIntent
 } from '../types';
 import { OpenAIService } from './openai-service';
 
@@ -53,6 +54,9 @@ export class AdvancedTradingService {
         case 'recommendation':
           result = await this.parseRecommendationIntent(userInput);
           break;
+        case 'info':
+          result = await this.parseInfoIntent(userInput);
+          break;
         default:
           const tradeIntent = await this.basicService.parseTradeIntent(userInput);
           result = { ...tradeIntent, type: 'trade' as const };
@@ -81,8 +85,9 @@ export class AdvancedTradingService {
 - "hedge": Hedging or risk management requests
 - "analysis": Market analysis or technical/fundamental analysis
 - "recommendation": Investment recommendations or "what should I buy/sell" questions
+- "info": Stock information requests, company details, or "show me/pull up" commands
 
-Respond with just the category name (e.g., "trade", "hedge", "recommendation", etc.)`
+Respond with just the category name (e.g., "trade", "hedge", "recommendation", "info", etc.)`
       },
       {
         role: 'user',
@@ -250,6 +255,66 @@ If specific details aren't mentioned, use reasonable defaults or null.`
       riskTolerance: parsed.risk_tolerance || 'moderate',
       timeframe: parsed.timeframe || 'medium-term',
       strategyType: parsed.strategy_type || 'general'
+    };
+  }
+
+  private async parseInfoIntent(userInput: string): Promise<InfoIntent> {
+    const messages: OpenAI.ChatCompletionMessageParam[] = [
+      {
+        role: 'system',
+        content: `Parse this stock information request and extract the key details.
+
+Respond with a JSON object containing:
+{
+  "symbol": "STOCK_SYMBOL", // The ticker symbol mentioned (convert company names to symbols)
+  "request_type": "general_info" | "company_details" | "financial_data" | "recent_news",
+  "specific_questions": ["question1", "question2"] // any specific questions mentioned, or null
+}
+
+Common company name to symbol mappings:
+- Apple → AAPL
+- Tesla → TSLA
+- Microsoft → MSFT
+- Google/Alphabet → GOOGL
+- Amazon → AMZN
+- Netflix → NFLX
+- Meta/Facebook → META
+- Nvidia → NVDA
+
+Request type guidelines:
+- "general_info": General stock info, price, performance
+- "company_details": Business model, leadership, operations
+- "financial_data": Earnings, revenue, financial metrics
+- "recent_news": Latest news, announcements, events
+
+Extract the most likely intent from natural language like "pull up TSLA information", "show me Apple stock", "get me Tesla details", etc.`
+      },
+      {
+        role: 'user',
+        content: userInput
+      }
+    ];
+
+    const response = await this.openai.chat.completions.create({
+      model: this.liteModel,
+      messages,
+      response_format: { type: 'json_object' },
+      max_tokens: 200,
+      temperature: 0.1
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new LLMError('Empty response from OpenAI');
+    }
+
+    const parsed = JSON.parse(content);
+
+    return {
+      type: 'info',
+      symbol: parsed.symbol?.toUpperCase() || '',
+      requestType: parsed.request_type || 'general_info',
+      specificQuestions: parsed.specific_questions || undefined
     };
   }
 

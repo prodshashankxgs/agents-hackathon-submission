@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { WebSocket, WebSocketServer } from 'ws';
 import { config } from './config';
@@ -7,6 +7,7 @@ import { AdvancedTradingService } from './llm/trading';
 import { AlpacaAdapter } from './brokers/alpaca-adapter';
 import { ValidationService } from './trading/validation-service';
 import { BasketStorageService } from './storage/basket-storage';
+import { TickerSearchService } from './services/ticker-search-service';
 import { TradeIntent, CLIOptions, TradingError } from './types';
 // import { brokerLimiter } from './utils/concurrency-limiter';
 import { performanceMiddleware, performanceMonitor } from './utils/performance-monitor';
@@ -26,6 +27,7 @@ const advancedTrading = new AdvancedTradingService();
 const broker = new AlpacaAdapter();
 const validator = new ValidationService(broker);
 const basketStorage = new BasketStorageService();
+const tickerSearch = new TickerSearchService();
 
 // Development mode warnings
 if (config.nodeEnv === 'development') {
@@ -43,7 +45,7 @@ if (config.nodeEnv === 'development') {
 }
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (req: Request, res: Response) => {
   res.json({ 
     status: 'ok', 
     mode: config.alpacaBaseUrl.includes('paper') ? 'paper' : 'live',
@@ -52,7 +54,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Parse natural language trade intent
-app.post('/api/trade/parse', async (req, res) => {
+app.post('/api/trade/parse', async (req: Request, res: Response) => {
   try {
     const { input } = req.body;
     
@@ -76,7 +78,7 @@ app.post('/api/trade/parse', async (req, res) => {
 });
 
 // Validate trade
-app.post('/api/trade/validate', async (req, res) => {
+app.post('/api/trade/validate', async (req: Request, res: Response) => {
   try {
     const { intent } = req.body;
     
@@ -100,7 +102,7 @@ app.post('/api/trade/validate', async (req, res) => {
 });
 
 // Execute trade
-app.post('/api/trade/execute', async (req, res) => {
+app.post('/api/trade/execute', async (req: Request, res: Response) => {
   try {
     const { intent } = req.body;
     
@@ -133,7 +135,7 @@ app.post('/api/trade/execute', async (req, res) => {
 });
 
 // Get account information
-app.get('/api/account', async (req, res) => {
+app.get('/api/account', async (req: Request, res: Response) => {
   try {
     const accountInfo = await broker.getAccountInfo();
     return res.json(accountInfo);
@@ -149,7 +151,7 @@ app.get('/api/account', async (req, res) => {
 });
 
 // Get market data for a symbol
-app.get('/api/market/:symbol', async (req, res) => {
+app.get('/api/market/:symbol', async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
     
@@ -171,7 +173,7 @@ app.get('/api/market/:symbol', async (req, res) => {
 });
 
 // Check if market is open
-app.get('/api/market/status', async (req, res) => {
+app.get('/api/market/status', async (req: Request, res: Response) => {
   try {
     const isOpen = await broker.isMarketOpen();
     return res.json({
@@ -188,7 +190,7 @@ app.get('/api/market/status', async (req, res) => {
 })
 
 // Get portfolio history
-app.get('/api/portfolio/history', async (req, res) => {
+app.get('/api/portfolio/history', async (req: Request, res: Response) => {
   try {
     const { period = '1M', timeframe = '1D' } = req.query;
     
@@ -245,7 +247,7 @@ app.get('/api/portfolio/history', async (req, res) => {
 });
 
 // Advanced trading endpoints
-app.post('/api/advanced/parse', async (req, res) => {
+app.post('/api/advanced/parse', async (req: Request, res: Response) => {
   try {
     const { input } = req.body;
     
@@ -276,7 +278,7 @@ app.post('/api/advanced/parse', async (req, res) => {
   }
 });
 
-app.post('/api/advanced/hedge', async (req, res) => {
+app.post('/api/advanced/hedge', async (req: Request, res: Response) => {
   try {
     const { intent } = req.body;
     
@@ -301,7 +303,7 @@ app.post('/api/advanced/hedge', async (req, res) => {
   }
 });
 
-app.post('/api/advanced/analyze', async (req, res) => {
+app.post('/api/advanced/analyze', async (req: Request, res: Response) => {
   try {
     const { intent } = req.body;
     
@@ -322,7 +324,7 @@ app.post('/api/advanced/analyze', async (req, res) => {
     });
     
     const marketDataResults = await Promise.all(marketDataPromises);
-    marketDataResults.forEach(({ symbol, data }) => {
+    marketDataResults.forEach(({ symbol, data }: { symbol: string; data: any }) => {
       if (data) {
         marketData[symbol] = data;
       }
@@ -337,7 +339,7 @@ app.post('/api/advanced/analyze', async (req, res) => {
   }
 });
 
-app.post('/api/advanced/recommend', async (req, res) => {
+app.post('/api/advanced/recommend', async (req: Request, res: Response) => {
   try {
     const { intent } = req.body;
     
@@ -359,7 +361,7 @@ app.post('/api/advanced/recommend', async (req, res) => {
 
 
 // Basket management endpoints
-app.get('/api/baskets', async (req, res) => {
+app.get('/api/baskets', async (req: Request, res: Response) => {
   try {
     const baskets = await basketStorage.getBaskets();
     return res.json({ baskets });
@@ -369,7 +371,7 @@ app.get('/api/baskets', async (req, res) => {
   }
 });
 
-app.get('/api/baskets/:basketId', async (req, res) => {
+app.get('/api/baskets/:basketId', async (req: Request, res: Response) => {
   try {
     const { basketId } = req.params;
     const basket = await basketStorage.getBasket(basketId);
@@ -385,7 +387,7 @@ app.get('/api/baskets/:basketId', async (req, res) => {
   }
 });
 
-app.delete('/api/baskets/:basketId', async (req, res) => {
+app.delete('/api/baskets/:basketId', async (req: Request, res: Response) => {
   try {
     const { basketId } = req.params;
     await basketStorage.deleteBasket(basketId);
@@ -398,9 +400,202 @@ app.delete('/api/baskets/:basketId', async (req, res) => {
 });
 
 
+// Ticker search endpoints
+app.get('/api/ticker/search', async (req: Request, res: Response) => {
+  try {
+    const { q: query, limit = 10, includeMarketData = false } = req.query;
+    
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Search query parameter "q" is required',
+        code: 'MISSING_QUERY'
+      });
+    }
+
+    const startTime = Date.now();
+    
+    let results;
+    if (includeMarketData === 'true') {
+      results = await tickerSearch.getTickerSuggestionsWithMarketData(
+        query as string, 
+        parseInt(limit as string) || 10
+      );
+    } else {
+      results = await tickerSearch.searchTickers(
+        query as string, 
+        parseInt(limit as string) || 10
+      );
+    }
+
+    const searchTime = Date.now() - startTime;
+
+    res.json({
+      success: true,
+      data: {
+        query,
+        results,
+        totalResults: results.length,
+        searchTime,
+        includeMarketData: includeMarketData === 'true'
+      }
+    });
+
+  } catch (error) {
+    console.error('Ticker search error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error during ticker search',
+      code: 'TICKER_SEARCH_ERROR'
+    });
+  }
+});
+
+app.get('/api/ticker/:symbol', async (req: Request, res: Response) => {
+  try {
+    const { symbol } = req.params;
+    
+    if (!symbol || !/^[A-Z]{1,5}(\.[A-Z])?$/.test(symbol.toUpperCase())) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid stock symbol is required',
+        code: 'INVALID_SYMBOL'
+      });
+    }
+
+    const startTime = Date.now();
+    
+    // Get ticker info and market data in parallel
+    const [tickerInfo, marketData] = await Promise.all([
+      tickerSearch.getTickerInfo(symbol.toUpperCase()),
+      broker.getMarketData(symbol.toUpperCase()).catch(() => null)
+    ]);
+
+    const processingTime = Date.now() - startTime;
+
+    if (!tickerInfo) {
+      return res.status(404).json({
+        success: false,
+        error: 'Stock symbol not found',
+        code: 'SYMBOL_NOT_FOUND'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        symbol: symbol.toUpperCase(),
+        info: tickerInfo,
+        marketData,
+        processingTime
+      }
+    });
+
+  } catch (error) {
+    console.error('Ticker info error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error while getting ticker info',
+      code: 'TICKER_INFO_ERROR'
+    });
+  }
+});
+
+// Historical stock price data endpoint
+app.get('/api/ticker/:symbol/history', async (req: Request, res: Response) => {
+  try {
+    const { symbol } = req.params;
+    const { period = '1M', timeframe = '1D' } = req.query;
+    
+    if (!symbol || !/^[A-Z]{1,5}(\.[A-Z])?$/.test(symbol.toUpperCase())) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid stock symbol is required',
+        code: 'INVALID_SYMBOL'
+      });
+    }
+
+    console.log(`Fetching historical data for ${symbol}: period=${period}, timeframe=${timeframe}`);
+
+    // Calculate date range based on period
+    const endDate = new Date();
+    let startDate = new Date();
+    
+    switch (period) {
+      case '1D':
+        startDate.setDate(endDate.getDate() - 1);
+        break;
+      case '5D':
+        startDate.setDate(endDate.getDate() - 5);
+        break;
+      case '1W':
+        startDate.setDate(endDate.getDate() - 7);
+        break;
+      case '1M':
+        startDate.setMonth(endDate.getMonth() - 1);
+        break;
+      case '3M':
+        startDate.setMonth(endDate.getMonth() - 3);
+        break;
+      case '6M':
+        startDate.setMonth(endDate.getMonth() - 6);
+        break;
+      case 'YTD':
+        startDate = new Date(endDate.getFullYear(), 0, 1);
+        break;
+      case '1Y':
+        startDate.setFullYear(endDate.getFullYear() - 1);
+        break;
+      case '5Y':
+        startDate.setFullYear(endDate.getFullYear() - 5);
+        break;
+      case 'MAX':
+        startDate.setFullYear(endDate.getFullYear() - 10); // 10 years max
+        break;
+      default:
+        startDate.setMonth(endDate.getMonth() - 1);
+    }
+
+    // Get historical data from broker
+    const historicalData = await broker.getHistoricalData(
+      symbol.toUpperCase(),
+      startDate.toISOString(),
+      endDate.toISOString(),
+      timeframe as string
+    );
+
+    if (!historicalData || historicalData.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        symbol: symbol.toUpperCase(),
+        period,
+        timeframe,
+        message: 'No historical data available for this time period'
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: historicalData,
+      symbol: symbol.toUpperCase(),
+      period,
+      timeframe,
+      dataPoints: historicalData.length
+    });
+
+  } catch (error) {
+    console.error('Historical data error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error while getting historical data',
+      code: 'HISTORICAL_DATA_ERROR'
+    });
+  }
+});
 
 // Simplified command endpoints
-app.post('/api/command/parse', async (req, res) => {
+app.post('/api/command/parse', async (req: Request, res: Response) => {
   try {
     const { command } = req.body
     
@@ -463,7 +658,7 @@ app.post('/api/command/parse', async (req, res) => {
   }
 })
 
-app.post('/api/command/execute', async (req, res) => {
+app.post('/api/command/execute', async (req: Request, res: Response) => {
   try {
     const { command } = req.body
     
@@ -543,7 +738,7 @@ app.post('/api/command/execute', async (req, res) => {
 })
 
 // Parsing performance endpoints
-app.get('/api/parsing/stats', async (req, res) => {
+app.get('/api/parsing/stats', async (req: Request, res: Response) => {
   try {
     const stats = optimizedParsingService.getPerformanceStats();
     return res.json(stats);
@@ -556,7 +751,7 @@ app.get('/api/parsing/stats', async (req, res) => {
   }
 });
 
-app.post('/api/parsing/warm-cache', async (req, res) => {
+app.post('/api/parsing/warm-cache', async (req: Request, res: Response) => {
   try {
     await optimizedParsingService.warmCaches();
     return res.json({
@@ -572,7 +767,7 @@ app.post('/api/parsing/warm-cache', async (req, res) => {
   }
 });
 
-app.post('/api/parsing/test-method', async (req, res) => {
+app.post('/api/parsing/test-method', async (req: Request, res: Response) => {
   try {
     const { input, method } = req.body;
     
@@ -600,7 +795,7 @@ app.post('/api/parsing/test-method', async (req, res) => {
 });
 
 // Add a test endpoint after the existing endpoints
-app.get('/api/test/broker', async (req, res) => {
+app.get('/api/test/broker', async (req: Request, res: Response) => {
   try {
     console.log('🧪 Testing broker connection...');
     
@@ -644,7 +839,7 @@ app.get('/api/test/broker', async (req, res) => {
 });
 
 // Error handling middleware
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });
@@ -681,9 +876,9 @@ wss.on('connection', (ws: WebSocket) => {
   
   console.log(`📡 Client connected: ${clientId}`);
   
-  ws.on('message', async (data: string) => {
+  ws.on('message', async (data: Buffer | ArrayBuffer | Buffer[]) => {
     try {
-      const message = JSON.parse(data);
+      const message = JSON.parse(data.toString());
       const client = clients.get(clientId);
       
       if (!client) return;
@@ -742,8 +937,8 @@ const broadcastMarketUpdate = (symbol: string, data: any) => {
 // Periodic market data updates (every 30 seconds)
 setInterval(async () => {
   const symbols = new Set<string>();
-  clients.forEach(client => {
-    client.subscriptions.forEach(symbol => symbols.add(symbol));
+  clients.forEach((client) => {
+    client.subscriptions.forEach((symbol) => symbols.add(symbol));
   });
   
   for (const symbol of symbols) {

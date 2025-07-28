@@ -79,6 +79,61 @@ export interface MarketStatus {
   timestamp: string
 }
 
+// Ticker search types
+export interface TickerSearchResult {
+  symbol: string
+  name: string
+  exchange: string
+  assetClass: string
+  status: string
+  tradable: boolean
+}
+
+export interface TickerSuggestion {
+  symbol: string
+  name: string
+  exchange: string
+  match: {
+    type: 'symbol' | 'name'
+    score: number
+  }
+}
+
+export interface TickerSearchResponse {
+  query: string
+  results: TickerSuggestion[]
+  totalResults: number
+  searchTime: number
+  includeMarketData: boolean
+}
+
+export interface TickerInfoResponse {
+  symbol: string
+  info: TickerSearchResult
+  marketData?: MarketData
+  processingTime: number
+}
+
+// Historical stock data types
+export interface HistoricalDataPoint {
+  date: string
+  price: number
+  open: number
+  high: number
+  low: number
+  volume: number
+}
+
+export interface HistoricalDataResponse {
+  symbol: string
+  period: string
+  timeframe: string
+  data: HistoricalDataPoint[]
+  totalPoints: number
+  processingTime: number
+  mock?: boolean
+}
+
 // Advanced trading types
 export interface HedgeIntent {
   type: 'hedge'
@@ -329,6 +384,26 @@ export const apiService = {
     return api.delete(`/baskets/${basketId}`).then(res => res.data)
   },
 
+  // Ticker search operations
+  async searchTickers(query: string, limit: number = 10, includeMarketData: boolean = false): Promise<TickerSearchResponse> {
+    const response = await api.get('/ticker/search', {
+      params: { q: query, limit, includeMarketData }
+    })
+    return response.data.data
+  },
+
+  async getTickerInfo(symbol: string): Promise<TickerInfoResponse> {
+    const response = await api.get(`/ticker/${symbol}`)
+    return response.data.data
+  },
+
+  // Historical data
+  async getHistoricalData(symbol: string, period: string = '1M', timeframe: string = '1D'): Promise<HistoricalDataResponse> {
+    const response = await api.get(`/ticker/${symbol}/history`, {
+      params: { period, timeframe }
+    })
+    return response.data
+  },
 
 }
 

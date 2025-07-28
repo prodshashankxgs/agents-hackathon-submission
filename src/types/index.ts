@@ -177,11 +177,19 @@ export interface TradeRecommendationIntent {
   strategyType: 'growth' | 'value' | 'income' | 'momentum' | 'general';
 }
 
+export interface InfoIntent {
+  type: 'info';
+  symbol: string;
+  requestType: 'general_info' | 'company_details' | 'financial_data' | 'recent_news';
+  specificQuestions?: string[];
+}
+
 export type AdvancedTradeIntent = 
   | (TradeIntent & { type: 'trade' })
   | HedgeIntent 
   | MarketAnalysisIntent 
-  | TradeRecommendationIntent;
+  | TradeRecommendationIntent
+  | InfoIntent;
 
 export interface HedgeRecommendation {
   strategy: string;
