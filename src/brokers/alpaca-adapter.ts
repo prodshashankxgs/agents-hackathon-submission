@@ -786,7 +786,8 @@ export class AlpacaAdapter implements OptionsBrokerAdapter {
       
       // If we have no price data at all, throw an error
       if (historicalData.length === 0 || historicalData.every(d => d.price === 0)) {
-        throw new BrokerError(`No historical price data available for ${symbol}. This may be due to paper trading API limitations or market closure.`);
+        console.warn(`No historical price data available for ${symbol}`);
+        throw new BrokerError(`No historical price data available for ${symbol}. This may be due to paper trading API limitations, market closure, or an invalid/unsupported symbol.`);
       }
       
       return historicalData;

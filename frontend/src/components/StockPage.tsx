@@ -63,8 +63,14 @@ export function StockWidget({ symbol, isOpen, onClose, onAddToPortfolio, classNa
         const result = await apiService.getHistoricalData(symbol, selectedTimeframe, '1H')
         console.log('Historical data result:', result)
         return result.data || []
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error fetching historical data:', error)
+        
+        // Show user-friendly error message
+        if (error?.response?.data?.error) {
+          console.warn('Historical data error:', error.response.data.error)
+        }
+        
         return []
       }
     },
@@ -240,9 +246,18 @@ export function StockWidget({ symbol, isOpen, onClose, onAddToPortfolio, classNa
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
                 <BarChart3 className="w-8 h-8 text-red-400 mx-auto mb-2" />
-                <p className="text-sm text-red-600 font-medium">Chart Error</p>
+                <p className="text-sm text-red-600 font-medium">Chart Unavailable</p>
                 <p className="text-xs text-gray-500 mt-1 max-w-sm">
-                  {chartError instanceof Error ? chartError.message : 'Failed to load historical data'}
+                  {(() => {
+                    const error: any = chartError
+                    if (error?.response?.data?.error) {
+                      return error.response.data.error
+                    }
+                    if (error instanceof Error) {
+                      return error.message
+                    }
+                    return 'Failed to load historical data'
+                  })()}
                 </p>
               </div>
             </div>

@@ -586,10 +586,36 @@ app.get('/api/ticker/:symbol/history', async (req: Request, res: Response) => {
 
   } catch (error) {
     console.error('Historical data error:', error);
-    res.status(500).json({
+    
+    let errorMessage = 'Failed to fetch historical data';
+    let statusCode = 500;
+    let errorCode = 'HISTORICAL_DATA_ERROR';
+    
+    if (error instanceof Error) {
+      if (error.message.includes('No historical price data available')) {
+        errorMessage = 'No historical data available for this symbol. This may be due to paper trading limitations or the symbol may not be available.';
+        statusCode = 404;
+        errorCode = 'NO_DATA_AVAILABLE';
+      } else if (error.message.includes('market closure')) {
+        errorMessage = 'Historical data unavailable due to market closure. Please try again during market hours.';
+        statusCode = 503;
+        errorCode = 'MARKET_CLOSED';
+      } else if (error.message.includes('Invalid symbol') || error.message.includes('not found')) {
+        errorMessage = `Symbol ${req.params.symbol.toUpperCase()} not found or invalid`;
+        statusCode = 404;
+        errorCode = 'INVALID_SYMBOL';
+      } else {
+        errorMessage = error.message;
+      }
+    }
+    
+    res.status(statusCode).json({
       success: false,
-      error: 'Internal server error while getting historical data',
-      code: 'HISTORICAL_DATA_ERROR'
+      error: errorMessage,
+      code: errorCode,
+      symbol: req.params.symbol.toUpperCase(),
+      period: req.query.period,
+      timeframe: req.query.timeframe
     });
   }
 });
