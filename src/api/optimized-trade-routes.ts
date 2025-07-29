@@ -4,7 +4,7 @@ import { AlpacaAdapter } from '../brokers/alpaca-adapter';
 import { ValidationService } from '../trading/validation-service';
 import { TradeIntent, UnifiedTradeIntent, OptionsTradeIntent } from '../types';
 import { IntentRecognitionService } from '../services/intent-recognition-service';
-import { StrategyRecommendationEngine, UserProfile } from '../services/strategy-recommendation-engine';
+// import { StrategyRecommendationEngine, UserProfile } from '../services/strategy-recommendation-engine'; // Removed - incomplete implementation
 import { TickerSearchService } from '../services/ticker-search-service';
 
 /**
@@ -22,7 +22,7 @@ export class OptimizedTradeRoutes {
   private broker: AlpacaAdapter;
   private validator: ValidationService;
   private intentRecognition: IntentRecognitionService;
-  private recommendationEngine: StrategyRecommendationEngine;
+  // private recommendationEngine: StrategyRecommendationEngine; // Removed - incomplete implementation
   private tickerSearch: TickerSearchService;
   private router: express.Router;
 
@@ -31,7 +31,7 @@ export class OptimizedTradeRoutes {
     this.broker = new AlpacaAdapter();
     this.validator = new ValidationService(this.broker);
     this.intentRecognition = new IntentRecognitionService();
-    this.recommendationEngine = new StrategyRecommendationEngine();
+    // this.recommendationEngine = new StrategyRecommendationEngine(); // Removed - incomplete implementation
     this.tickerSearch = new TickerSearchService();
     this.router = express.Router();
     this.setupRoutes();
@@ -82,8 +82,8 @@ export class OptimizedTradeRoutes {
     this.router.get('/options/quote/:optionSymbol', this.handleOptionsQuote.bind(this));
     this.router.get('/options/positions', this.handleOptionsPositions.bind(this));
     
-    // Strategy recommendation endpoints
-    this.router.post('/strategies/recommend', this.handleStrategyRecommendation.bind(this));
+    // Strategy recommendation endpoints - DISABLED: incomplete implementation
+    // this.router.post('/strategies/recommend', this.handleStrategyRecommendation.bind(this));
     this.router.post('/strategies/analyze', this.handleIntentAnalysis.bind(this));
     
     // Ticker search endpoints
@@ -556,9 +556,11 @@ export class OptimizedTradeRoutes {
     }
   }
 
-  /**
+  /*
    * Get strategy recommendations based on natural language command and user profile
+   * DISABLED: StrategyRecommendationEngine implementation incomplete
    */
+  /*
   private async handleStrategyRecommendation(req: express.Request, res: express.Response): Promise<void> {
     try {
       const { command, userProfile } = req.body;
@@ -601,6 +603,7 @@ export class OptimizedTradeRoutes {
       this.handleError(res, error, 'STRATEGY_RECOMMENDATION_ERROR');
     }
   }
+  */
 
   /**
    * Analyze intent from natural language command

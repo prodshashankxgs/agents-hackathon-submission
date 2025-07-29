@@ -41,9 +41,6 @@
     "**/*.test.ts",
     "**/*.spec.ts",
     "src/testing/**/*",
-    "src/examples/**/*",
-    "src/api/portfolio-risk-routes.ts",
-    "src/api/advanced-options-routes.ts",
-    "src/services/portfolio-risk-monitoring-service.ts"
+    "src/examples/**/*"
   ]
 } 

@@ -7,6 +7,8 @@ yarn-error.log*
 # Build output
 dist/
 build/
+frontend/dist/
+frontend/build/
 
 # Environment variables
 .env
@@ -46,4 +48,7 @@ coverage/
 *.tsbuildinfo
 
 # Data storage
-data/ 
+data/
+
+# Disabled files
+*.disabled 
