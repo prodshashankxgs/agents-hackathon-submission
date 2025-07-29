@@ -56,6 +56,7 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
   const [marketAnalysis, setMarketAnalysis] = useState<MarketAnalysis[] | null>(null)
   const [tradeRecommendations, setTradeRecommendations] = useState<any>(null)
   const [thirteenFPortfolio, setThirteenFPortfolio] = useState<ThirteenFPortfolio | null>(null)
+  const [livePrice, setLivePrice] = useState<MarketData | null>(null)
   const [thirteenFInvestment, setThirteenFInvestment] = useState<{
     basket: PortfolioBasket
     allocation: any[]
@@ -91,7 +92,38 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
   const inputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
+  // Fetch live price data when parsed command changes
+  useEffect(() => {
+    const fetchLivePrice = async () => {
+      if (parsedCommand?.symbol && parsedCommand.isValid) {
+        try {
+          const tickerInfo = await apiService.getTickerInfo(parsedCommand.symbol)
+          if (tickerInfo.marketData) {
+            setLivePrice(tickerInfo.marketData)
+          }
+        } catch (error) {
+          console.error('Failed to fetch live price:', error)
+          setLivePrice(null)
+        }
+      } else {
+        setLivePrice(null)
+      }
+    }
 
+    fetchLivePrice()
+
+    // Set up interval to refresh price every 10 seconds when confirmation is shown
+    let interval: NodeJS.Timeout | null = null
+    if (parsedCommand?.symbol && parsedCommand.isValid && showConfirmation) {
+      interval = setInterval(fetchLivePrice, 10000)
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval)
+      }
+    }
+  }, [parsedCommand?.symbol, parsedCommand?.isValid, showConfirmation])
 
   // Function to detect if input is a stock symbol
   const isStockSymbol = (input: string): boolean => {
@@ -568,6 +600,7 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
           // Reset all states to prepare for a new command
           setCommand('')
           setParsedCommand(null)
+          setLivePrice(null)
           resetProcessing()
           
           // Focus the input field for the next command
@@ -576,6 +609,7 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
       } else {
         // If trade failed, just reset processing but keep the command
         setTimeout(() => {
+          setLivePrice(null)
           resetProcessing()
           inputRef.current?.focus()
         }, 1500)
@@ -595,6 +629,7 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
       
       // If there's an error, reset after a delay but keep the command
       setTimeout(() => {
+        setLivePrice(null)
         resetProcessing()
         inputRef.current?.focus()
       }, 1500)
@@ -617,6 +652,7 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
     hideConfirmationWithAnimation(() => {
       setParsedCommand(null)
       setCommand('')
+      setLivePrice(null)
       resetProcessing()
       setIsLoading(false)
       inputRef.current?.focus()
@@ -972,6 +1008,46 @@ export function TradingInterface({ accountInfo }: TradingInterfaceProps = {}) {
                             <kbd className="px-2 py-1 bg-gray-100 border border-gray-200 rounded text-gray-700 font-mono">N</kbd>
                           </div>
                         </div>
+                        
+                        {/* Live Price Display */}
+                        {livePrice && (
+                          <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-2">
+                                <DollarSignIcon className="w-4 h-4 text-blue-600" />
+                                <span className="text-sm font-medium text-gray-700">
+                                  {parsedCommand.symbol.toUpperCase()} Live Price
+                                </span>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <span className="text-lg font-bold text-gray-900">
+                                  {formatCurrency(livePrice.currentPrice)}
+                                </span>
+                                {livePrice.changePercent !== 0 && (
+                                  <div className={`flex items-center space-x-1 ${
+                                    livePrice.changePercent >= 0 ? 'text-green-600' : 'text-red-600'
+                                  }`}>
+                                    {livePrice.changePercent >= 0 ? (
+                                      <TrendingUpIcon className="w-3 h-3" />
+                                    ) : (
+                                      <TrendingDownIcon className="w-3 h-3" />
+                                    )}
+                                    <span className="text-xs font-medium">
+                                      {livePrice.changePercent >= 0 ? '+' : ''}{livePrice.changePercent.toFixed(2)}%
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between mt-1 text-xs text-gray-500">
+                              <span>Previous Close: {formatCurrency(livePrice.previousClose)}</span>
+                              <span className={`flex items-center space-x-1 ${livePrice.isMarketOpen ? 'text-green-600' : 'text-red-600'}`}>
+                                <div className={`w-2 h-2 rounded-full ${livePrice.isMarketOpen ? 'bg-green-400' : 'bg-red-400'}`}></div>
+                                <span>{livePrice.isMarketOpen ? 'Market Open' : 'Market Closed'}</span>
+                              </span>
+                            </div>
+                          </div>
+                        )}
                         
                         <div className="flex items-center gap-3">
                           <button
