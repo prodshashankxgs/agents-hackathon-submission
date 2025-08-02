@@ -63,7 +63,8 @@ export class PerplexityLLMAdapter {
 
     try {
       const query = this.build13FQuery(institution);
-      const response = await this.makePerplexityRequest(query, 'comprehensive');
+      // Use faster model for quicker response times  
+      const response = await this.makePerplexityRequest(query, 'fast');
       
       return this.parse13FResponse(response, institution);
     } catch (error) {
@@ -94,16 +95,15 @@ export class PerplexityLLMAdapter {
       targetQuarter = 4;
     }
 
-    return `Find the most recent 13F filing for ${institution} (Bridgewater Associates, Berkshire Hathaway, etc.). 
-    I need the detailed stock holdings data including:
-    - Company names and ticker symbols
-    - Number of shares held
-    - Market value of each position
-    - Percentage of total portfolio
-    - Filing date and quarter (look for Q${targetQuarter} ${targetYear} or the most recent available)
+    return `Find ${institution}'s most recent 13F filing holdings. I need the top 15 stock positions with:
+    - Ticker symbols (AAPL, GOOGL, etc.)
+    - Company names  
+    - Portfolio percentage for each holding
+    - Filing quarter (Q${targetQuarter} ${targetYear} or latest)
     
-    Focus on the top 20-30 holdings by value. Provide exact numbers and percentages.
-    Format the response as structured data with clear holdings information.`;
+    Keep response concise and focused. Example format:
+    AAPL (Apple Inc.) - 8.5%
+    GOOGL (Alphabet Inc.) - 6.2%`;
   }
 
   /**
@@ -137,7 +137,7 @@ export class PerplexityLLMAdapter {
             content: query
           }
         ],
-        max_tokens: 4000,
+        max_tokens: 2000,
         temperature: 0.1,
         top_p: 0.9,
         return_citations: true,

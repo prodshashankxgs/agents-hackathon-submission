@@ -25,6 +25,10 @@ export class ThirteenFService {
   ) {
     this.perplexityAdapter = new PerplexityLLMAdapter(logger);
     this.basketStorage = new BasketStorageService();
+    // Initialize storage asynchronously
+    this.basketStorage.initialize().catch(error => {
+      this.logger.error('Failed to initialize basket storage', error instanceof Error ? error : new Error('Unknown error'));
+    });
   }
 
   /**
@@ -59,6 +63,7 @@ export class ThirteenFService {
       const basket = this.createBasket(thirteenFReport, allocations, investmentAmount, options);
 
       // Step 4: Save to storage
+      await this.basketStorage.initialize(); // Ensure storage is ready
       await this.basketStorage.saveBasket(basket);
 
       this.logger.info('Successfully created 13F basket', {
