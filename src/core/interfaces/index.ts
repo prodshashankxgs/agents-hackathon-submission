@@ -66,7 +66,7 @@ export interface OptionContractEntity {
   exchange: string;
 }
 
-// ===== VALUE OBJECTS =====
+// Value Objects
 export interface TradeCommand {
   symbol: string;
   action: 'buy' | 'sell';
@@ -90,6 +90,9 @@ export interface ValidationError {
   message: string;
   field?: string;
   severity: 'error' | 'warning';
+}
+export interface ValidationType {
+  type: 'true' | 'false' | 'partial'
 }
 
 export interface ParseResult {
@@ -485,4 +488,31 @@ export class ApplicationError extends Error {
     super(message);
     this.name = 'ApplicationError';
   }
+}
+
+// LLM Provider Management
+export interface LLMProvider {
+  provider: 'openai' | 'claude'
+  timestamp?: string
+}
+
+export interface LLMProviderResponse {
+  success: boolean
+  provider?: 'openai' | 'claude'
+  previousProvider?: 'openai' | 'claude'
+  currentProvider?: 'openai' | 'claude'
+  message?: string
+  timestamp: string
+}
+
+// Get current LLM provider
+async function getCurrentLLMProvider(): Promise<LLMProvider> {
+  const response = await api.get('/llm/provider')
+  return response.data
+}
+
+// Set LLM provider
+async function setLLMProvider(provider: 'openai' | 'claude'): Promise<LLMProviderResponse> {
+  const response = await api.post('/llm/provider', { provider })
+  return response.data
 }
