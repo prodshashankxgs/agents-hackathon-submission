@@ -1,0 +1,788 @@
+import { 
+  OptionsStrategy, 
+  OptionsPosition, 
+  OptionContract, 
+  GreeksCalculation,
+  AccountInfo,
+  BrokerError 
+} from '../types';
+import { GreeksCalculatorService } from './greeks-calculator';
+
+/**
+ * Comprehensive Options Risk Management System
+ * 
+ * Provides institutional-grade risk management for options trading including:
+ * - Position sizing and concentration limits
+ * - Portfolio risk metrics and monitoring
+ * - Real-time risk alerts and notifications
+ * - Margin and capital requirements
+ * - Stress testing and scenario analysis
+ */
+export class OptionsRiskManager {
+  private greeksCalculator: GreeksCalculatorService;
+  private riskLimits: RiskLimits;
+  private monitoringEnabled: boolean = true;
+
+  constructor(riskLimits?: Partial<RiskLimits>) {
+    this.greeksCalculator = new GreeksCalculatorService();
+    this.riskLimits = {
+      maxPortfolioDelta: 50,           // Maximum portfolio delta exposure
+      maxPortfolioGamma: 10,           // Maximum portfolio gamma exposure
+      maxPortfolioTheta: -500,         // Maximum daily theta decay
+      maxPortfolioVega: 1000,          // Maximum volatility exposure
+      maxSinglePositionRisk: 0.05,     // 5% of portfolio per position
+      maxConcentrationRisk: 0.15,      // 15% concentration per underlying
+      maxDayTradesUsed: 0.8,           // Use max 80% of day trades
+      minCashReserve: 0.1,             // Keep 10% cash reserve
+      maxLeverage: 2.0,                // Maximum 2:1 leverage
+      stopLossThreshold: -0.2,         // 20% stop loss
+      ...riskLimits
+    };
+  }
+
+  /**
+   * Comprehensive portfolio risk assessment
+   */
+  async assessPortfolioRisk(
+    positions: OptionsPosition[],
+    accountInfo: AccountInfo,
+    marketConditions: MarketConditions
+  ): Promise<PortfolioRiskAssessment> {
+    // Calculate current portfolio Greeks
+    const portfolioGreeks = await this.calculatePortfolioGreeks(positions, marketConditions);
+    
+    // Calculate risk metrics
+    const riskMetrics = this.calculateRiskMetrics(positions, accountInfo, portfolioGreeks);
+    
+    // Assess concentration risk
+    const concentrationRisk = this.assessConcentrationRisk(positions, accountInfo.portfolioValue);
+    
+    // Calculate margin utilization
+    const marginAnalysis = this.calculateMarginUtilization(positions, accountInfo);
+    
+    // Stress test scenarios
+    const stressTestResults = await this.performStressTests(positions, marketConditions);
+    
+    // Generate risk alerts
+    const alerts = this.generateRiskAlerts(riskMetrics, concentrationRisk, marginAnalysis);
+    
+    // Calculate overall risk score
+    const riskScore = this.calculateOverallRiskScore(riskMetrics, concentrationRisk, marginAnalysis);
+
+    return {
+      portfolioGreeks,
+      riskMetrics,
+      concentrationRisk,
+      marginAnalysis,
+      stressTestResults,
+      alerts,
+      riskScore,
+      timestamp: new Date()
+    };
+  }
+
+  /**
+   * Validate new position against risk limits
+   */
+  async validateNewPosition(
+    newStrategy: OptionsStrategy,
+    currentPositions: OptionsPosition[],
+    accountInfo: AccountInfo,
+    marketConditions: MarketConditions
+  ): Promise<PositionValidation> {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    
+    // Calculate position size as percentage of portfolio
+    const positionRisk = Math.abs(newStrategy.maxLoss) / accountInfo.portfolioValue;
+    if (positionRisk > this.riskLimits.maxSinglePositionRisk) {
+      errors.push(`Position risk ${(positionRisk * 100).toFixed(1)}% exceeds limit of ${(this.riskLimits.maxSinglePositionRisk * 100).toFixed(1)}%`);
+    }
+
+         // Check concentration risk by underlying
+     const underlying = newStrategy.legs[0]?.contract.underlying;
+     let currentConcentration = 0;
+     let newConcentration = positionRisk;
+     
+     if (underlying) {
+       currentConcentration = this.calculateUnderlyingConcentration(currentPositions, underlying, accountInfo.portfolioValue);
+       newConcentration = currentConcentration + positionRisk;
+       
+       if (newConcentration > this.riskLimits.maxConcentrationRisk) {
+         errors.push(`Concentration in ${underlying} would be ${(newConcentration * 100).toFixed(1)}%, exceeding limit of ${(this.riskLimits.maxConcentrationRisk * 100).toFixed(1)}%`);
+       }
+     }
+
+    // Check margin requirements
+    const requiredMargin = newStrategy.margin;
+    const availableMargin = accountInfo.buyingPower;
+    
+    if (requiredMargin > availableMargin) {
+      errors.push(`Insufficient margin: Required $${requiredMargin.toFixed(2)}, Available $${availableMargin.toFixed(2)}`);
+    }
+
+    // Simulate portfolio Greeks after adding position
+    const simulatedGreeks = await this.simulatePortfolioGreeks(
+      currentPositions, 
+      newStrategy, 
+      marketConditions
+    );
+
+    // Check portfolio Greek limits
+    if (Math.abs(simulatedGreeks.delta) > this.riskLimits.maxPortfolioDelta) {
+      warnings.push(`Portfolio delta would be ${simulatedGreeks.delta.toFixed(2)}, exceeding recommended limit of ±${this.riskLimits.maxPortfolioDelta}`);
+    }
+
+    if (Math.abs(simulatedGreeks.gamma) > this.riskLimits.maxPortfolioGamma) {
+      warnings.push(`Portfolio gamma would be ${simulatedGreeks.gamma.toFixed(3)}, exceeding recommended limit of ±${this.riskLimits.maxPortfolioGamma}`);
+    }
+
+    if (simulatedGreeks.theta < this.riskLimits.maxPortfolioTheta) {
+      warnings.push(`Portfolio theta would be ${simulatedGreeks.theta.toFixed(2)}, exceeding daily decay limit of ${this.riskLimits.maxPortfolioTheta}`);
+    }
+
+    // Check day trading limits
+    if (accountInfo.dayTradeCount / 3 > this.riskLimits.maxDayTradesUsed) {
+      warnings.push(`Day trade usage at ${((accountInfo.dayTradeCount / 3) * 100).toFixed(0)}%, approaching PDT limit`);
+    }
+
+    // Check cash reserves
+    const cashReserveRatio = accountInfo.buyingPower / accountInfo.portfolioValue;
+    if (cashReserveRatio < this.riskLimits.minCashReserve) {
+      warnings.push(`Cash reserve at ${(cashReserveRatio * 100).toFixed(1)}%, below recommended ${(this.riskLimits.minCashReserve * 100).toFixed(1)}%`);
+    }
+
+         const finalConcentration = underlying ? currentConcentration + positionRisk : positionRisk;
+     
+     return {
+       isValid: errors.length === 0,
+       errors,
+       warnings,
+       riskAssessment: {
+         positionRisk,
+         concentrationRisk: finalConcentration,
+         marginImpact: requiredMargin,
+         portfolioGreeksImpact: simulatedGreeks
+       }
+     };
+  }
+
+  /**
+   * Real-time position monitoring
+   */
+  async monitorPositions(
+    positions: OptionsPosition[],
+    accountInfo: AccountInfo,
+    marketConditions: MarketConditions
+  ): Promise<RiskAlert[]> {
+    if (!this.monitoringEnabled) return [];
+
+    const alerts: RiskAlert[] = [];
+    const currentTime = new Date();
+
+         for (const position of positions) {
+       // Find the earliest expiration date among legs
+       const expirationDates = position.legs.map(leg => leg.contract.expirationDate);
+       const earliestExpiration = expirationDates.sort()[0];
+       
+       if (earliestExpiration) {
+         const daysToExpiration = this.calculateDaysToExpiration(earliestExpiration);
+         if (daysToExpiration <= 7 && position.quantity > 0) {
+           alerts.push({
+             type: 'warning',
+             category: 'expiration',
+             message: `Position ${position.id} (${position.underlying}) expires in ${daysToExpiration} days`,
+             position: position.id,
+             severity: daysToExpiration <= 3 ? 'high' : 'medium',
+             timestamp: currentTime
+           });
+         }
+       }
+
+       // Check for high theta decay using position's aggregated Greeks
+       const dailyTheta = position.greeks.theta * position.quantity;
+       if (Math.abs(dailyTheta) > 50) {
+         alerts.push({
+           type: 'info',
+           category: 'theta',
+           message: `High time decay: $${Math.abs(dailyTheta).toFixed(2)}/day on ${position.id} (${position.underlying})`,
+           position: position.id,
+           severity: 'medium',
+           timestamp: currentTime
+         });
+       }
+
+       // Check for large unrealized losses
+       const lossPercent = position.unrealizedPnL / Math.abs(position.costBasis);
+       if (lossPercent < this.riskLimits.stopLossThreshold) {
+         alerts.push({
+           type: 'error',
+           category: 'loss',
+           message: `Position ${position.id} (${position.underlying}) down ${(Math.abs(lossPercent) * 100).toFixed(1)}%, consider stop loss`,
+           position: position.id,
+           severity: 'high',
+           timestamp: currentTime
+         });
+       }
+
+       // Check for early assignment risk (ITM short options)
+       for (const leg of position.legs) {
+         if (leg.side === 'short' && earliestExpiration) {
+           const daysToExpiration = this.calculateDaysToExpiration(earliestExpiration);
+           if (daysToExpiration <= 30) {
+             const intrinsicValue = this.calculateIntrinsicValue(
+               leg.contract.contractType,
+               marketConditions.underlyingPrice,
+               leg.contract.strikePrice
+             );
+             
+             if (intrinsicValue > 0) {
+               alerts.push({
+                 type: 'warning',
+                 category: 'assignment',
+                 message: `Early assignment risk: ${position.id} (${position.underlying}) has ITM short ${leg.contract.contractType} with ${daysToExpiration} days to expiration`,
+                 position: position.id,
+                 severity: 'high',
+                 timestamp: currentTime
+               });
+               break; // Only alert once per position
+             }
+           }
+         }
+       }
+     }
+
+    return alerts;
+  }
+
+  /**
+   * Calculate optimal position sizing
+   */
+  calculateOptimalPositionSize(
+    strategy: OptionsStrategy,
+    accountInfo: AccountInfo,
+    riskTolerance: 'conservative' | 'moderate' | 'aggressive' = 'moderate'
+  ): PositionSizing {
+    const portfolioValue = accountInfo.portfolioValue;
+    
+    // Risk tolerance multipliers
+    const riskMultipliers = {
+      conservative: 0.02,  // 2% max risk per trade
+      moderate: 0.03,      // 3% max risk per trade
+      aggressive: 0.05     // 5% max risk per trade
+    };
+
+    const maxRiskAmount = portfolioValue * riskMultipliers[riskTolerance];
+    const strategyMaxLoss = Math.abs(strategy.maxLoss);
+    
+    // Calculate maximum quantity based on risk tolerance
+    let maxQuantity = 1;
+    if (strategyMaxLoss > 0) {
+      maxQuantity = Math.floor(maxRiskAmount / strategyMaxLoss);
+    }
+
+    // Apply additional constraints
+    const constraints = this.applyPositionConstraints(maxQuantity, strategy, accountInfo);
+
+    return {
+      recommendedQuantity: constraints.quantity,
+      maxRiskAmount,
+      estimatedCost: constraints.quantity * strategy.margin,
+      riskPercentage: (constraints.quantity * strategyMaxLoss) / portfolioValue,
+      constraints: constraints.appliedConstraints
+    };
+  }
+
+  /**
+   * Stress test portfolio under various scenarios
+   */
+  private async performStressTests(
+    positions: OptionsPosition[],
+    marketConditions: MarketConditions
+  ): Promise<StressTestResults> {
+    const scenarios = [
+      { name: 'Market Crash (-20%)', priceMove: -0.20, volMove: 0.5 },
+      { name: 'Market Rally (+15%)', priceMove: 0.15, volMove: -0.2 },
+      { name: 'Vol Spike (+50%)', priceMove: 0, volMove: 0.5 },
+      { name: 'Vol Crush (-30%)', priceMove: 0, volMove: -0.3 },
+      { name: 'Time Decay (7 days)', priceMove: 0, volMove: 0, timeMove: -7 }
+    ];
+
+    const results: StressTestResult[] = [];
+
+    for (const scenario of scenarios) {
+      let totalPnL = 0;
+      
+      for (const position of positions) {
+        const stressedConditions = {
+          underlyingPrice: marketConditions.underlyingPrice * (1 + scenario.priceMove),
+          impliedVolatility: (marketConditions.impliedVolatility || 0.2) * (1 + scenario.volMove),
+          riskFreeRate: marketConditions.riskFreeRate || 0.05
+        };
+
+        // Calculate theoretical value under stress scenario
+        let stressedContract = position.legs[0]?.contract;
+        if (scenario.timeMove && stressedContract) {
+          const newExpDate = new Date(stressedContract.expirationDate);
+          newExpDate.setDate(newExpDate.getDate() + scenario.timeMove);
+          stressedContract = {
+            ...stressedContract,
+            expirationDate: newExpDate.toISOString().split('T')[0] || stressedContract.expirationDate
+          };
+        }
+
+        const stressedPrice = stressedContract ? this.greeksCalculator.calculateOptionPrice(
+          stressedContract,
+          stressedConditions.underlyingPrice,
+          stressedConditions.impliedVolatility,
+          stressedConditions.riskFreeRate
+        ) : 0;
+
+        const currentPrice = position.currentValue / position.quantity;
+        const positionPnL = (stressedPrice - currentPrice) * position.quantity * 100;
+        totalPnL += positionPnL;
+      }
+
+      results.push({
+        scenario: scenario.name,
+        portfolioPnL: totalPnL,
+        portfolioPnLPercent: totalPnL / this.calculatePortfolioValue(positions)
+      });
+    }
+
+    return { scenarios: results };
+  }
+
+  /**
+   * Calculate portfolio Greeks aggregation
+   */
+  private async calculatePortfolioGreeks(
+    positions: OptionsPosition[],
+    marketConditions: MarketConditions
+  ): Promise<GreeksCalculation> {
+    let totalDelta = 0;
+    let totalGamma = 0;
+    let totalTheta = 0;
+    let totalVega = 0;
+    let totalRho = 0;
+
+    for (const position of positions) {
+      const contract = position.legs[0]?.contract;
+      if (!contract) continue;
+      
+      const greeks = await this.greeksCalculator.calculateOptionGreeks(
+        contract,
+        marketConditions.underlyingPrice,
+        marketConditions.impliedVolatility || 0.2,
+        marketConditions.riskFreeRate || 0.05
+      );
+
+      const multiplier = position.quantity;
+      totalDelta += greeks.delta * multiplier;
+      totalGamma += greeks.gamma * multiplier;
+      totalTheta += greeks.theta * multiplier;
+      totalVega += greeks.vega * multiplier;
+      totalRho += greeks.rho * multiplier;
+    }
+
+    return {
+      delta: totalDelta,
+      gamma: totalGamma,
+      theta: totalTheta,
+      vega: totalVega,
+      rho: totalRho
+    };
+  }
+
+  /**
+   * Calculate risk metrics
+   */
+  private calculateRiskMetrics(
+    positions: OptionsPosition[],
+    accountInfo: AccountInfo,
+    portfolioGreeks: GreeksCalculation
+  ): RiskMetrics {
+    const portfolioValue = accountInfo.portfolioValue;
+    const totalUnrealizedPnL = positions.reduce((sum, pos) => sum + pos.unrealizedPnL, 0);
+    
+    // Value at Risk calculation (simplified)
+    const portfolioDelta = Math.abs(portfolioGreeks.delta);
+    const underlyingMoveEstimate = portfolioValue * 0.02; // 2% daily move estimate
+    const dailyVaR = portfolioDelta * underlyingMoveEstimate;
+
+    // Maximum portfolio loss
+    const maxPortfolioLoss = positions.reduce((sum, pos) => {
+      return sum + Math.abs(pos.costBasis); // Worst case: lose entire premium
+    }, 0);
+
+    // Leverage calculation
+    const totalPositionValue = positions.reduce((sum, pos) => sum + Math.abs(pos.currentValue), 0);
+    const leverage = totalPositionValue / portfolioValue;
+
+    return {
+      valueAtRisk: dailyVaR,
+      maxPortfolioLoss,
+      currentLeverage: leverage,
+      portfolioBeta: portfolioGreeks.delta / 100, // Simplified beta approximation
+      sharpeRatio: this.calculateSharpeRatio(positions),
+      sortinioRatio: this.calculateSortinoRatio(positions),
+      maxDrawdown: this.calculateMaxDrawdown(positions)
+    };
+  }
+
+  /**
+   * Assess concentration risk by underlying asset
+   */
+  private assessConcentrationRisk(
+    positions: OptionsPosition[],
+    portfolioValue: number
+  ): ConcentrationRisk {
+    const underlyingExposure: { [underlying: string]: number } = {};
+    
+    // Calculate exposure by underlying
+    for (const position of positions) {
+      const underlying = position.legs[0]?.contract.underlying;
+      if (!underlying) continue;
+      
+      if (!underlyingExposure[underlying]) {
+        underlyingExposure[underlying] = 0;
+      }
+      underlyingExposure[underlying] += Math.abs(position.currentValue);
+    }
+
+    // Convert to percentages and find top exposures
+    const concentrations = Object.entries(underlyingExposure)
+      .map(([underlying, exposure]) => ({
+        underlying,
+        exposure,
+        percentage: exposure / portfolioValue
+      }))
+      .sort((a, b) => b.percentage - a.percentage);
+
+    const topConcentrations = concentrations.slice(0, 5);
+    const maxConcentration = concentrations[0]?.percentage || 0;
+    
+    return {
+      topConcentrations,
+      maxConcentration,
+      concentrationScore: this.calculateConcentrationScore(concentrations),
+      isOverConcentrated: maxConcentration > this.riskLimits.maxConcentrationRisk
+    };
+  }
+
+  // Helper methods
+     private calculateUnderlyingConcentration(
+     positions: OptionsPosition[],
+     underlying: string,
+     portfolioValue: number
+   ): number {
+     const exposure = positions
+       .filter(pos => pos.underlying === underlying)
+       .reduce((sum, pos) => sum + Math.abs(pos.currentValue), 0);
+     
+     return exposure / portfolioValue;
+   }
+
+  private async simulatePortfolioGreeks(
+    currentPositions: OptionsPosition[],
+    newStrategy: OptionsStrategy,
+    marketConditions: MarketConditions
+  ): Promise<GreeksCalculation> {
+    // Current portfolio Greeks
+    const currentGreeks = await this.calculatePortfolioGreeks(currentPositions, marketConditions);
+    
+    // New strategy Greeks
+    const strategyGreeks = this.greeksCalculator.calculateStrategyGreeks(
+      newStrategy,
+      marketConditions.underlyingPrice,
+      marketConditions.impliedVolatility || 0.2,
+      marketConditions.riskFreeRate || 0.05
+    );
+
+    return {
+      delta: currentGreeks.delta + strategyGreeks.delta,
+      gamma: currentGreeks.gamma + strategyGreeks.gamma,
+      theta: currentGreeks.theta + strategyGreeks.theta,
+      vega: currentGreeks.vega + strategyGreeks.vega,
+      rho: currentGreeks.rho + strategyGreeks.rho
+    };
+  }
+
+  private calculateDaysToExpiration(expirationDate: string): number {
+    const expiry = new Date(expirationDate);
+    const now = new Date();
+    return Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  }
+
+  private calculateIntrinsicValue(
+    contractType: 'call' | 'put',
+    underlyingPrice: number,
+    strikePrice: number
+  ): number {
+    if (contractType === 'call') {
+      return Math.max(0, underlyingPrice - strikePrice);
+    } else {
+      return Math.max(0, strikePrice - underlyingPrice);
+    }
+  }
+
+  private applyPositionConstraints(
+    maxQuantity: number,
+    strategy: OptionsStrategy,
+    accountInfo: AccountInfo
+  ): { quantity: number; appliedConstraints: string[] } {
+    const constraints: string[] = [];
+    let finalQuantity = maxQuantity;
+
+    // Margin constraint
+    const availableMargin = accountInfo.buyingPower;
+    const marginPerContract = strategy.margin;
+    const maxQuantityByMargin = Math.floor(availableMargin / marginPerContract);
+    
+    if (maxQuantityByMargin < finalQuantity) {
+      finalQuantity = maxQuantityByMargin;
+      constraints.push('Limited by available margin');
+    }
+
+    // Ensure minimum of 1 contract
+    finalQuantity = Math.max(1, finalQuantity);
+
+    return { quantity: finalQuantity, appliedConstraints: constraints };
+  }
+
+  private calculateMarginUtilization(
+    positions: OptionsPosition[],
+    accountInfo: AccountInfo
+  ): MarginAnalysis {
+    const totalMarginUsed = positions.reduce((sum, pos) => {
+      // Simplified margin calculation
+      return sum + Math.abs(pos.currentValue) * 0.2; // 20% margin requirement estimate
+    }, 0);
+
+    const marginUtilization = totalMarginUsed / accountInfo.buyingPower;
+
+    return {
+      totalMarginUsed,
+      availableMargin: accountInfo.buyingPower - totalMarginUsed,
+      marginUtilization,
+      isOverMargin: marginUtilization > 0.9
+    };
+  }
+
+  private generateRiskAlerts(
+    riskMetrics: RiskMetrics,
+    concentrationRisk: ConcentrationRisk,
+    marginAnalysis: MarginAnalysis
+  ): RiskAlert[] {
+    const alerts: RiskAlert[] = [];
+    const now = new Date();
+
+    // High leverage alert
+    if (riskMetrics.currentLeverage > this.riskLimits.maxLeverage) {
+      alerts.push({
+        type: 'warning',
+        category: 'leverage',
+        message: `Portfolio leverage at ${riskMetrics.currentLeverage.toFixed(2)}x, exceeds limit of ${this.riskLimits.maxLeverage}x`,
+        severity: 'high',
+        timestamp: now
+      });
+    }
+
+    // Concentration risk alert
+    if (concentrationRisk.isOverConcentrated) {
+      alerts.push({
+        type: 'warning',
+        category: 'concentration',
+        message: `Over-concentrated in ${concentrationRisk.topConcentrations[0]?.underlying}: ${(concentrationRisk.maxConcentration * 100).toFixed(1)}%`,
+        severity: 'medium',
+        timestamp: now
+      });
+    }
+
+    // Margin utilization alert
+    if (marginAnalysis.marginUtilization > 0.8) {
+      alerts.push({
+        type: 'warning',
+        category: 'margin',
+        message: `High margin utilization: ${(marginAnalysis.marginUtilization * 100).toFixed(1)}%`,
+        severity: 'medium',
+        timestamp: now
+      });
+    }
+
+    return alerts;
+  }
+
+  private calculateOverallRiskScore(
+    riskMetrics: RiskMetrics,
+    concentrationRisk: ConcentrationRisk,
+    marginAnalysis: MarginAnalysis
+  ): number {
+    // Risk score from 0-100 (100 = highest risk)
+    let score = 0;
+
+    // Leverage component (0-30 points)
+    score += Math.min(30, (riskMetrics.currentLeverage / this.riskLimits.maxLeverage) * 30);
+
+    // Concentration component (0-25 points)
+    score += Math.min(25, (concentrationRisk.maxConcentration / this.riskLimits.maxConcentrationRisk) * 25);
+
+    // Margin component (0-20 points)
+    score += Math.min(20, marginAnalysis.marginUtilization * 20);
+
+    // VaR component (0-25 points)
+    const varRatio = riskMetrics.valueAtRisk / (riskMetrics.maxPortfolioLoss * 0.1);
+    score += Math.min(25, varRatio * 25);
+
+    return Math.round(score);
+  }
+
+  private calculatePortfolioValue(positions: OptionsPosition[]): number {
+    return positions.reduce((sum, pos) => sum + pos.currentValue, 0);
+  }
+
+  private calculateSharpeRatio(positions: OptionsPosition[]): number {
+    // Simplified Sharpe ratio calculation
+    const totalReturn = positions.reduce((sum, pos) => sum + pos.unrealizedPnL, 0);
+    const portfolioValue = this.calculatePortfolioValue(positions);
+    return portfolioValue > 0 ? totalReturn / portfolioValue : 0;
+  }
+
+  private calculateSortinoRatio(positions: OptionsPosition[]): number {
+    // Simplified Sortino ratio (similar to Sharpe for now)
+    return this.calculateSharpeRatio(positions);
+  }
+
+  private calculateMaxDrawdown(positions: OptionsPosition[]): number {
+    // Simplified max drawdown calculation
+    const totalUnrealizedPnL = positions.reduce((sum, pos) => sum + pos.unrealizedPnL, 0);
+    const portfolioValue = this.calculatePortfolioValue(positions);
+    return totalUnrealizedPnL < 0 ? Math.abs(totalUnrealizedPnL) / portfolioValue : 0;
+  }
+
+  private calculateConcentrationScore(concentrations: Array<{ percentage: number }>): number {
+    // Herfindahl-Hirschman Index for concentration
+    return concentrations.reduce((sum, c) => sum + (c.percentage * c.percentage), 0) * 10000;
+  }
+
+  /**
+   * Update risk limits
+   */
+  updateRiskLimits(newLimits: Partial<RiskLimits>): void {
+    this.riskLimits = { ...this.riskLimits, ...newLimits };
+  }
+
+  /**
+   * Enable/disable monitoring
+   */
+  setMonitoring(enabled: boolean): void {
+    this.monitoringEnabled = enabled;
+  }
+
+  /**
+   * Get current risk limits
+   */
+  getRiskLimits(): RiskLimits {
+    return { ...this.riskLimits };
+  }
+}
+
+// Supporting interfaces and types
+export interface RiskLimits {
+  maxPortfolioDelta: number;
+  maxPortfolioGamma: number;
+  maxPortfolioTheta: number;
+  maxPortfolioVega: number;
+  maxSinglePositionRisk: number;
+  maxConcentrationRisk: number;
+  maxDayTradesUsed: number;
+  minCashReserve: number;
+  maxLeverage: number;
+  stopLossThreshold: number;
+}
+
+export interface MarketConditions {
+  underlyingPrice: number;
+  impliedVolatility?: number;
+  riskFreeRate?: number;
+  marketTrend?: 'bullish' | 'bearish' | 'neutral';
+  volatilityRank?: number;
+}
+
+export interface PortfolioRiskAssessment {
+  portfolioGreeks: GreeksCalculation;
+  riskMetrics: RiskMetrics;
+  concentrationRisk: ConcentrationRisk;
+  marginAnalysis: MarginAnalysis;
+  stressTestResults: StressTestResults;
+  alerts: RiskAlert[];
+  riskScore: number;
+  timestamp: Date;
+}
+
+export interface PositionValidation {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  riskAssessment: {
+    positionRisk: number;
+    concentrationRisk: number;
+    marginImpact: number;
+    portfolioGreeksImpact: GreeksCalculation;
+  };
+}
+
+export interface RiskAlert {
+  type: 'info' | 'warning' | 'error';
+  category: 'expiration' | 'theta' | 'loss' | 'assignment' | 'leverage' | 'concentration' | 'margin';
+  message: string;
+  position?: string;
+  severity: 'low' | 'medium' | 'high';
+  timestamp: Date;
+}
+
+export interface PositionSizing {
+  recommendedQuantity: number;
+  maxRiskAmount: number;
+  estimatedCost: number;
+  riskPercentage: number;
+  constraints: string[];
+}
+
+export interface RiskMetrics {
+  valueAtRisk: number;
+  maxPortfolioLoss: number;
+  currentLeverage: number;
+  portfolioBeta: number;
+  sharpeRatio: number;
+  sortinioRatio: number;
+  maxDrawdown: number;
+}
+
+export interface ConcentrationRisk {
+  topConcentrations: Array<{
+    underlying: string;
+    exposure: number;
+    percentage: number;
+  }>;
+  maxConcentration: number;
+  concentrationScore: number;
+  isOverConcentrated: boolean;
+}
+
+export interface MarginAnalysis {
+  totalMarginUsed: number;
+  availableMargin: number;
+  marginUtilization: number;
+  isOverMargin: boolean;
+}
+
+export interface StressTestResults {
+  scenarios: StressTestResult[];
+}
+
+export interface StressTestResult {
+  scenario: string;
+  portfolioPnL: number;
+  portfolioPnLPercent: number;
+} 
