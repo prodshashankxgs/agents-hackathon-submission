@@ -1175,31 +1175,315 @@ app.post('/api/research', async (req: Request, res: Response) => {
   }
 });
 
+// In-memory plan storage (in production, use a database)
+interface ExecutionStep {
+  id: string;
+  description: string;
+  action: 'buy' | 'sell' | 'hold' | 'wait';
+  symbol?: string;
+  quantity?: number;
+  price?: number;
+  condition?: string;
+  timing?: string;
+  completed: boolean;
+  executedAt?: string;
+  result?: any;
+}
+
+interface TradingPlan {
+  id: string;
+  title: string;
+  type: string;
+  query: string;
+  createdAt: string;
+  savedAt: number;
+  tags: string[];
+  isTrending: boolean;
+  data: any;
+  executionSteps: ExecutionStep[];
+  status: 'draft' | 'ready' | 'executing' | 'completed' | 'paused' | 'failed';
+  totalSteps: number;
+  completedSteps: number;
+  lastExecuted?: string;
+  scheduledAt?: string;
+  autoExecute: boolean;
+}
+
+const plansStorage = new Map<string, TradingPlan>();
+
+// Initialize with sample executable plans
+const initializeSamplePlans = () => {
+  const samplePlans: TradingPlan[] = [
+    {
+      id: '1',
+      title: 'AAPL Momentum Strategy',
+      type: 'trade-plan',
+      query: 'Create a momentum trading plan for AAPL based on recent earnings',
+      createdAt: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
+      savedAt: Date.now() - 86400000,
+      tags: ['AAPL', 'momentum', 'technology', 'earnings'],
+      isTrending: true,
+      status: 'ready',
+      autoExecute: false,
+      totalSteps: 3,
+      completedSteps: 0,
+      data: {
+        summary: 'Momentum-based trading strategy for AAPL following strong earnings. Buy on strength, use technical indicators for timing.',
+        keyFindings: [
+          'AAPL reported strong quarterly earnings with 15% revenue growth',
+          'Technical indicators show bullish momentum with RSI at 65',
+          'Volume spike indicates institutional buying interest',
+          'Support level established at $195, resistance at $210'
+        ],
+        confidence: 0.85,
+        expectedReturn: '8-12%',
+        riskLevel: 'Medium',
+        timeframe: '2-4 weeks'
+      },
+      executionSteps: [
+        {
+          id: 'step-1',
+          description: 'Wait for market open and check pre-market sentiment',
+          action: 'wait',
+          condition: 'Market opens AND pre-market volume > 500K',
+          timing: 'Market open (9:30 AM ET)',
+          completed: false
+        },
+        {
+          id: 'step-2', 
+          description: 'Buy 15 shares of AAPL if price is above $200',
+          action: 'buy',
+          symbol: 'AAPL',
+          quantity: 15,
+          condition: 'Price > $200 AND RSI < 70',
+          timing: 'Within first 30 minutes of market open',
+          completed: false
+        },
+        {
+          id: 'step-3',
+          description: 'Set stop loss at 5% below entry price',
+          action: 'hold',
+          condition: 'Position established',
+          timing: 'Immediately after purchase',
+          completed: false
+        }
+      ]
+    },
+    {
+      id: '2',
+      title: 'TSLA Technical Breakout',
+      type: 'trade-plan', 
+      query: 'Technical analysis based plan for TSLA breakout above $250',
+      createdAt: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
+      savedAt: Date.now() - 172800000,
+      tags: ['TSLA', 'breakout', 'technical', 'EV'],
+      isTrending: false,
+      status: 'ready',
+      autoExecute: false,
+      totalSteps: 4,
+      completedSteps: 0,
+      data: {
+        summary: 'Technical breakout strategy for TSLA. Waiting for break above $250 resistance with volume confirmation.',
+        keyFindings: [
+          'TSLA consolidating in $240-250 range for 2 weeks',
+          'Volume declining suggests coiling for breakout move',
+          'EV sector showing renewed strength',
+          'Options flow indicates bullish sentiment'
+        ],
+        confidence: 0.78,
+        expectedReturn: '15-20%',
+        riskLevel: 'High',
+        timeframe: '1-3 weeks'
+      },
+      executionSteps: [
+        {
+          id: 'step-1',
+          description: 'Monitor for breakout above $250 with volume > 1M',
+          action: 'wait',
+          symbol: 'TSLA',
+          condition: 'Price > $250 AND Volume > 1M shares',
+          timing: 'Continuous monitoring during market hours',
+          completed: false
+        },
+        {
+          id: 'step-2',
+          description: 'Buy 10 shares on confirmed breakout',
+          action: 'buy',
+          symbol: 'TSLA',
+          quantity: 10,
+          condition: 'Breakout confirmed with sustained move',
+          timing: 'Within 15 minutes of breakout signal',
+          completed: false
+        },
+        {
+          id: 'step-3',
+          description: 'Set initial stop loss at $245',
+          action: 'hold',
+          condition: 'Position established',
+          timing: 'Immediately after entry',
+          completed: false
+        },
+        {
+          id: 'step-4',
+          description: 'Set profit target at $280 and monitor position',
+          action: 'hold',
+          symbol: 'TSLA',
+          condition: 'Price reaches $280 for profit taking',
+          timing: 'Monitor continuously',
+          completed: false
+        }
+      ]
+    },
+    {
+      id: '3',
+      title: 'NVDA AI Sector Play',
+      type: 'trade-plan',
+      query: 'Long-term investment plan for NVIDIA based on AI growth',
+      createdAt: new Date(Date.now() - 259200000).toISOString(), // 3 days ago
+      savedAt: Date.now() - 259200000,
+      tags: ['NVDA', 'AI', 'long-term', 'semiconductors'],
+      isTrending: true,
+      status: 'ready',
+      autoExecute: false,
+      totalSteps: 3,
+      completedSteps: 0,
+      data: {
+        summary: 'Long-term accumulation strategy for NVIDIA. Dollar-cost averaging approach over 4 weeks.',
+        keyFindings: [
+          'AI market projected to grow 25% annually through 2027',
+          'NVDA maintains 85% market share in AI chips',
+          'Recent pullback creates attractive entry opportunity',
+          'Strong institutional support and analyst upgrades'
+        ],
+        confidence: 0.92,
+        expectedReturn: '25-35%',
+        riskLevel: 'Medium',
+        timeframe: '3-6 months'
+      },
+      executionSteps: [
+        {
+          id: 'step-1',
+          description: 'Buy $1000 worth of NVDA shares (Week 1)',
+          action: 'buy',
+          symbol: 'NVDA',
+          price: 1000, // Dollar amount
+          condition: 'Any price below $500',
+          timing: 'This week',
+          completed: false
+        },
+        {
+          id: 'step-2',
+          description: 'Buy additional $1000 worth (Week 2)',
+          action: 'buy',
+          symbol: 'NVDA', 
+          price: 1000,
+          condition: 'Any price below $520',
+          timing: 'Next week',
+          completed: false
+        },
+        {
+          id: 'step-3',
+          description: 'Final $1000 purchase (Week 3)',
+          action: 'buy',
+          symbol: 'NVDA',
+          price: 1000,
+          condition: 'Any price below $540',
+          timing: 'Week 3',
+          completed: false
+        }
+      ]
+    },
+    {
+      id: '4',
+      title: 'MSFT Dividend Growth Strategy',
+      type: 'trade-plan',
+      query: 'Create a conservative accumulation plan for Microsoft for dividend growth',
+      createdAt: new Date(Date.now() - 345600000).toISOString(), // 4 days ago
+      savedAt: Date.now() - 345600000,
+      tags: ['MSFT', 'dividend', 'conservative', 'technology'],
+      isTrending: false,
+      status: 'ready',
+      autoExecute: false,
+      totalSteps: 3,
+      completedSteps: 0,
+      data: {
+        summary: 'Conservative accumulation strategy for Microsoft focusing on dividend growth and stability.',
+        keyFindings: [
+          'MSFT has increased dividend payments for 20+ consecutive years',
+          'Strong balance sheet with consistent free cash flow generation',
+          'Azure cloud growth provides long-term revenue visibility',
+          'Enterprise software business offers stable recurring revenue'
+        ],
+        confidence: 0.88,
+        expectedReturn: '12-18%',
+        riskLevel: 'Low',
+        timeframe: '6-12 months'
+      },
+      executionSteps: [
+        {
+          id: 'step-1',
+          description: 'Buy initial 10 shares of MSFT as core position',
+          action: 'buy',
+          symbol: 'MSFT',
+          quantity: 10,
+          condition: 'Any price below $450',
+          timing: 'Immediate execution',
+          completed: false
+        },
+        {
+          id: 'step-2',
+          description: 'Set dividend reinvestment and monitoring',
+          action: 'hold',
+          condition: 'Position established, monitor for dividend announcements',
+          timing: 'Ongoing monitoring',
+          completed: false
+        },
+        {
+          id: 'step-3',
+          description: 'Add 5 more shares on any 5% dip',
+          action: 'buy',
+          symbol: 'MSFT',
+          quantity: 5,
+          condition: 'Price drops 5% from initial purchase',
+          timing: 'Opportunistic buying on dips',
+          completed: false
+        }
+      ]
+    }
+  ];
+
+  samplePlans.forEach(plan => {
+    plansStorage.set(plan.id, plan);
+  });
+};
+
+// Initialize sample plans
+initializeSamplePlans();
+
 // Trading Plans API endpoints
 app.get('/api/plans', async (req: Request, res: Response) => {
   try {
-    // For now, return mock data since we don't have a storage implementation yet
-    // In a real implementation, you'd fetch from a database
-    const plans = [
-      {
-        id: '1',
-        title: 'AAPL Long Position',
-        type: 'trade-plan',
-        query: 'Create a trading plan for AAPL',
-        createdAt: new Date().toISOString(),
-        savedAt: Date.now(),
-        tags: ['AAPL', 'technology', 'long'],
-        isTrending: true,
-        data: {
-          summary: 'Bullish outlook for Apple with strong fundamentals',
-          keyFindings: [
-            'Strong quarterly earnings',
-            'iPhone sales growth',
-            'Services revenue expansion'
-          ]
-        }
-      }
-    ];
+    const { type, trending, limit = '50' } = req.query;
+    
+    let plans = Array.from(plansStorage.values());
+    
+    // Apply filters
+    if (type && type !== 'all') {
+      plans = plans.filter(plan => plan.type === type);
+    }
+    
+    if (trending === 'true') {
+      plans = plans.filter(plan => plan.isTrending);
+    }
+    
+    // Sort by creation date (newest first)
+    plans.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
+    // Apply limit
+    const limitNum = parseInt(limit as string);
+    if (limitNum > 0) {
+      plans = plans.slice(0, limitNum);
+    }
     
     res.json({
       plans,
@@ -1215,12 +1499,114 @@ app.get('/api/plans', async (req: Request, res: Response) => {
   }
 });
 
+app.get('/api/plans/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const plan = plansStorage.get(id);
+    
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        error: 'Plan not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      plan
+    });
+  } catch (error: any) {
+    console.error('Plan fetch error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch plan',
+      details: error.message
+    });
+  }
+});
+
+app.post('/api/plans', async (req: Request, res: Response) => {
+  try {
+    const { title, type, query, tags, data, executionSteps, autoExecute } = req.body;
+    
+    const plan: TradingPlan = {
+      id: `plan-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      title,
+      type: type || 'trade-plan',
+      query,
+      createdAt: new Date().toISOString(),
+      savedAt: Date.now(),
+      tags: tags || [],
+      isTrending: false,
+      data: data || {},
+      executionSteps: executionSteps || [],
+      status: 'draft',
+      totalSteps: (executionSteps || []).length,
+      completedSteps: 0,
+      autoExecute: autoExecute || false
+    };
+    
+    plansStorage.set(plan.id, plan);
+    
+    res.json({
+      success: true,
+      plan,
+      message: 'Plan created successfully'
+    });
+  } catch (error: any) {
+    console.error('Plan creation error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create plan',
+      details: error.message
+    });
+  }
+});
+
+app.put('/api/plans/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    
+    const plan = plansStorage.get(id);
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        error: 'Plan not found'
+      });
+    }
+    
+    // Update plan
+    const updatedPlan = { ...plan, ...updates };
+    plansStorage.set(id, updatedPlan);
+    
+    res.json({
+      success: true,
+      plan: updatedPlan,
+      message: 'Plan updated successfully'
+    });
+  } catch (error: any) {
+    console.error('Plan update error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update plan',
+      details: error.message
+    });
+  }
+});
+
 app.delete('/api/plans/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     
-    // For now, just return success
-    // In a real implementation, you'd delete from a database
+    if (!plansStorage.has(id)) {
+      return res.status(404).json({
+        success: false,
+        error: 'Plan not found'
+      });
+    }
+    
+    plansStorage.delete(id);
     
     res.json({
       success: true,
@@ -1231,6 +1617,275 @@ app.delete('/api/plans/:id', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: 'Failed to delete plan',
+      details: error.message
+    });
+  }
+});
+
+// Plan execution endpoints
+app.post('/api/plans/:id/execute', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { stepId, force = false } = req.body;
+    
+    const plan = plansStorage.get(id);
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        error: 'Plan not found'
+      });
+    }
+    
+    // Find the step to execute
+    const step = plan.executionSteps.find(s => s.id === stepId);
+    if (!step) {
+      return res.status(404).json({
+        success: false,
+        error: 'Execution step not found'
+      });
+    }
+    
+    if (step.completed && !force) {
+      return res.status(400).json({
+        success: false,
+        error: 'Step already completed'
+      });
+    }
+    
+    console.log(`🎯 Executing plan step: ${step.description}`);
+    
+    // Update plan status
+    plan.status = 'executing';
+    plan.lastExecuted = new Date().toISOString();
+    
+    let executionResult;
+    
+    try {
+      // Execute the step based on action type
+      switch (step.action) {
+        case 'buy':
+          if (step.symbol && (step.quantity || step.price)) {
+            const command = step.quantity 
+              ? `buy ${step.quantity} shares of ${step.symbol}`
+              : `buy $${step.price} worth of ${step.symbol}`;
+            
+            console.log(`📈 Executing buy order: ${command}`);
+            
+            // Parse and execute the trade
+            const tradeResult = await optimizedParsingService.parseTradeIntent(command);
+            const validation = await validator.validateTrade(tradeResult.intent);
+            if (validation.isValid) {
+              executionResult = await broker.executeOrder(tradeResult.intent);
+              console.log(`✅ Trade executed successfully:`, executionResult);
+            } else {
+              throw new Error(`Trade validation failed: ${validation.errors.join(', ')}`);
+            }
+          } else {
+            throw new Error('Invalid buy step: missing symbol or quantity/price');
+          }
+          break;
+          
+        case 'sell':
+          if (step.symbol && step.quantity) {
+            const command = `sell ${step.quantity} shares of ${step.symbol}`;
+            console.log(`📉 Executing sell order: ${command}`);
+            
+            const tradeResult = await optimizedParsingService.parseTradeIntent(command);
+            const validation = await validator.validateTrade(tradeResult.intent);
+            if (validation.isValid) {
+              executionResult = await broker.executeOrder(tradeResult.intent);
+              console.log(`✅ Sell order executed successfully:`, executionResult);
+            } else {
+              throw new Error(`Trade validation failed: ${validation.errors.join(', ')}`);
+            }
+          } else {
+            throw new Error('Invalid sell step: missing symbol or quantity');
+          }
+          break;
+          
+        case 'wait':
+          console.log(`⏰ Wait step acknowledged: ${step.description}`);
+          executionResult = {
+            success: true,
+            message: 'Wait condition noted',
+            action: 'wait',
+            timestamp: new Date().toISOString()
+          };
+          break;
+          
+        case 'hold':
+          console.log(`🤝 Hold step acknowledged: ${step.description}`);
+          executionResult = {
+            success: true,
+            message: 'Hold position maintained',
+            action: 'hold',
+            timestamp: new Date().toISOString()
+          };
+          break;
+          
+        default:
+          throw new Error(`Unknown action type: ${step.action}`);
+      }
+      
+      // Mark step as completed
+      step.completed = true;
+      step.executedAt = new Date().toISOString();
+      step.result = executionResult;
+      
+      // Update completed steps count
+      plan.completedSteps = plan.executionSteps.filter(s => s.completed).length;
+      
+      // Check if plan is complete
+      if (plan.completedSteps >= plan.totalSteps) {
+        plan.status = 'completed';
+        console.log(`🎉 Plan "${plan.title}" completed successfully!`);
+      } else {
+        plan.status = 'ready'; // Ready for next step
+      }
+      
+      // Save updated plan
+      plansStorage.set(id, plan);
+      
+      res.json({
+        success: true,
+        plan,
+        step,
+        executionResult,
+        message: 'Step executed successfully'
+      });
+      
+    } catch (executionError: any) {
+      console.error(`❌ Step execution failed:`, executionError);
+      
+      // Provide better error messages based on error type
+      let userFriendlyError = executionError.message;
+      if (executionError.message.includes('403') || executionError.message.includes('Request failed with status code 403')) {
+        if (step.action === 'sell') {
+          userFriendlyError = 'Cannot sell shares: Insufficient holdings. You may not own enough shares to sell.';
+        } else {
+          userFriendlyError = 'Trade rejected: Insufficient permissions or account restrictions.';
+        }
+      } else if (executionError.message.includes('validation failed')) {
+        userFriendlyError = 'Waiting for market conditions to be met.';
+      }
+      
+      // Mark step as failed but don't mark as completed
+      step.result = {
+        success: false,
+        error: userFriendlyError,
+        originalError: executionError.message,
+        timestamp: new Date().toISOString()
+      };
+      
+      plan.status = 'failed';
+      plansStorage.set(id, plan);
+      
+      res.status(500).json({
+        success: false,
+        error: 'Step execution failed',
+        details: userFriendlyError,
+        plan,
+        step
+      });
+    }
+    
+  } catch (error: any) {
+    console.error('Plan execution error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to execute plan step',
+      details: error.message
+    });
+  }
+});
+
+app.post('/api/plans/:id/execute-all', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    const plan = plansStorage.get(id);
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        error: 'Plan not found'
+      });
+    }
+    
+    console.log(`🚀 Starting full execution of plan: ${plan.title}`);
+    
+    plan.status = 'executing';
+    const executionResults = [];
+    
+    // Execute steps in order
+    for (const step of plan.executionSteps) {
+      if (step.completed) {
+        console.log(`⏭️ Skipping completed step: ${step.description}`);
+        continue;
+      }
+      
+      try {
+        // For wait/hold steps in automated execution, just mark as completed
+        if (step.action === 'wait' || step.action === 'hold') {
+          step.completed = true;
+          step.executedAt = new Date().toISOString();
+          step.result = {
+            success: true,
+            message: `Automated ${step.action} step completed`,
+            timestamp: new Date().toISOString()
+          };
+          executionResults.push({ stepId: step.id, success: true });
+          continue;
+        }
+        
+        // Execute trading steps
+        const response = await fetch(`http://localhost:${port}/api/plans/${id}/execute`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stepId: step.id })
+        });
+        
+        const result = await response.json();
+        executionResults.push({ 
+          stepId: step.id, 
+          success: result.success,
+          result: result.executionResult,
+          error: result.error
+        });
+        
+        if (!result.success) {
+          console.error(`❌ Step ${step.id} failed:`, result.error);
+          break; // Stop on first failure
+        }
+        
+      } catch (stepError: any) {
+        console.error(`❌ Step ${step.id} execution failed:`, stepError);
+        executionResults.push({ 
+          stepId: step.id, 
+          success: false, 
+          error: stepError.message 
+        });
+        break; // Stop on error
+      }
+    }
+    
+    // Update plan status
+    const updatedPlan = plansStorage.get(id)!;
+    const allCompleted = updatedPlan.executionSteps.every(s => s.completed);
+    updatedPlan.status = allCompleted ? 'completed' : 'failed';
+    plansStorage.set(id, updatedPlan);
+    
+    res.json({
+      success: true,
+      plan: updatedPlan,
+      executionResults,
+      message: allCompleted ? 'Plan executed successfully' : 'Plan execution stopped due to error'
+    });
+    
+  } catch (error: any) {
+    console.error('Full plan execution error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to execute plan',
       details: error.message
     });
   }
