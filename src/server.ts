@@ -10,6 +10,8 @@ import { ValidationService } from './trading/validation-service';
 import { BasketStorageService } from './storage/basket-storage';
 import { TickerSearchService } from './services/ticker-search-service';
 import { ThirteenFService } from './services/thirteenf-service';
+import { AdvancedResearchService } from './services/advanced-research-service';
+import { PerplexityService } from './services/perplexity-service';
 import { ConsoleLogger } from './infrastructure/logging/ConsoleLogger';
 import { TradeIntent, CLIOptions, TradingError } from './types';
 // import { brokerLimiter } from './utils/concurrency-limiter';
@@ -34,6 +36,8 @@ const basketStorage = new BasketStorageService();
 const tickerSearch = new TickerSearchService();
 const logger = new ConsoleLogger();
 const thirteenFService = new ThirteenFService(logger, broker);
+const advancedResearchService = new AdvancedResearchService(openaiService, broker);
+const perplexityService = new PerplexityService();
 
 // Development mode warnings
 if (config.nodeEnv === 'development') {
@@ -1010,6 +1014,224 @@ app.get('/api/test/broker', async (req: Request, res: Response) => {
       success: false,
       error: error.message,
       details: error.stack
+    });
+  }
+});
+
+// Debug endpoints for testing services
+app.get('/api/debug/openai', async (req: Request, res: Response) => {
+  try {
+    const testPrompt = "What is 2+2? Respond with just the number.";
+    const response = await openaiService.generateCompletion(testPrompt, {
+      temperature: 0,
+      maxTokens: 50
+    });
+    res.json({ success: true, response, prompt: testPrompt });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message, stack: error.stack });
+  }
+});
+
+app.get('/api/debug/perplexity', async (req: Request, res: Response) => {
+  try {
+    const insight = await perplexityService.generateMarketInsight("What is the current market sentiment?");
+    res.json({ success: true, insight });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message, stack: error.stack });
+  }
+});
+
+app.get('/api/debug/research-simple', async (req: Request, res: Response) => {
+  try {
+    console.log('🔍 Testing simple research plan generation...');
+    const testRequest = {
+      query: "Test simple research query",
+      mode: null,
+      includeVisuals: false,
+      symbols: []
+    };
+    
+    // Test just the research plan creation
+    const service = new (await import('./services/advanced-research-service')).AdvancedResearchService(openaiService, broker);
+    const result = await service.conductResearch(testRequest);
+    
+    res.json({ success: true, result });
+  } catch (error: any) {
+    console.error('🚨 Research debug error:', error);
+    res.status(500).json({ success: false, error: error.message, stack: error.stack });
+  }
+});
+
+app.get('/api/debug/openai-json', async (req: Request, res: Response) => {
+  try {
+    const planningPrompt = `
+    Create a comprehensive research plan for: "Test research query"
+    Research Mode: market-insight
+    
+    You are a senior research analyst creating a detailed research methodology. Provide:
+    
+    1. RESEARCH STEPS (5-7 specific steps):
+    - Each step should be actionable and specific
+    - Focus on gathering different types of data
+    - Include both quantitative and qualitative analysis
+    
+    2. METHODOLOGY:
+    - Overall approach and framework
+    - How to evaluate and weight different information sources
+    - Quality criteria for research findings
+    
+    3. FOCUS AREAS:
+    - Key topics to investigate deeply
+    - Critical questions to answer
+    - Specific metrics or data points to gather
+    
+    4. EXPECTED SOURCES:
+    - Types of sources to prioritize
+    - Specific databases or platforms to check
+    - Expert opinions or reports to seek
+    
+    Format as JSON with the structure:
+    {
+      "steps": ["step1", "step2", ...],
+      "methodology": "description",
+      "focusAreas": ["area1", "area2", ...],
+      "expectedSources": ["source1", "source2", ...]
+    }
+    `;
+
+    const response = await openaiService.generateCompletion(planningPrompt, {
+      temperature: 0.3,
+      maxTokens: 1000
+    });
+    
+    let parseResult;
+    let parseError;
+    
+    try {
+      // Try direct parse
+      parseResult = JSON.parse(response);
+    } catch (error: any) {
+      parseError = error.message;
+      
+      // Try with JSON extraction
+      let jsonStr = response.trim();
+      if (jsonStr.includes('```json')) {
+        const jsonMatch = jsonStr.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonMatch) {
+          jsonStr = jsonMatch[1];
+        }
+      }
+      
+      try {
+        parseResult = JSON.parse(jsonStr);
+        parseError = null;
+      } catch (extractError: any) {
+        parseError = `Both direct and extracted JSON parsing failed: ${extractError.message}`;
+      }
+    }
+    
+    res.json({ 
+      success: true, 
+      rawResponse: response,
+      parseResult,
+      parseError,
+      responseLength: response.length
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message, stack: error.stack });
+  }
+});
+
+// Research API endpoints
+app.post('/api/research', async (req: Request, res: Response) => {
+  try {
+    const { query, mode, includeVisuals, symbols } = req.body;
+    
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Query is required',
+        code: 'INVALID_QUERY'
+      });
+    }
+
+    const request = {
+      query,
+      mode: mode || null,
+      includeVisuals: includeVisuals || false,
+      symbols: symbols || []
+    };
+
+    const result = await advancedResearchService.conductResearch(request);
+    
+    res.json(result);
+  } catch (error: any) {
+    console.error('Research error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to conduct research',
+      details: error.message
+    });
+  }
+});
+
+// Trading Plans API endpoints
+app.get('/api/plans', async (req: Request, res: Response) => {
+  try {
+    // For now, return mock data since we don't have a storage implementation yet
+    // In a real implementation, you'd fetch from a database
+    const plans = [
+      {
+        id: '1',
+        title: 'AAPL Long Position',
+        type: 'trade-plan',
+        query: 'Create a trading plan for AAPL',
+        createdAt: new Date().toISOString(),
+        savedAt: Date.now(),
+        tags: ['AAPL', 'technology', 'long'],
+        isTrending: true,
+        data: {
+          summary: 'Bullish outlook for Apple with strong fundamentals',
+          keyFindings: [
+            'Strong quarterly earnings',
+            'iPhone sales growth',
+            'Services revenue expansion'
+          ]
+        }
+      }
+    ];
+    
+    res.json({
+      plans,
+      total: plans.length
+    });
+  } catch (error: any) {
+    console.error('Plans fetch error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch plans',
+      details: error.message
+    });
+  }
+});
+
+app.delete('/api/plans/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    // For now, just return success
+    // In a real implementation, you'd delete from a database
+    
+    res.json({
+      success: true,
+      message: 'Plan deleted successfully'
+    });
+  } catch (error: any) {
+    console.error('Plan deletion error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete plan',
+      details: error.message
     });
   }
 });

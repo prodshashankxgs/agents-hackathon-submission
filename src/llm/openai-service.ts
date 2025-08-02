@@ -334,4 +334,45 @@ ${contextInfo}`
       });
     }
   }
+
+  /**
+   * Generate completion with custom parameters
+   */
+  async generateCompletion(
+    prompt: string, 
+    options: {
+      temperature?: number;
+      maxTokens?: number;
+      model?: string;
+    } = {}
+  ): Promise<string> {
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: options.model || 'gpt-4o',
+        messages: [{
+          role: 'user',
+          content: prompt
+        }],
+        temperature: options.temperature || 0.1,
+        max_tokens: options.maxTokens || 1000
+      });
+
+      const content = response.choices[0]?.message?.content;
+      
+      if (!content) {
+        throw new LLMError('Empty response from OpenAI');
+      }
+
+      return content;
+    } catch (error) {
+      if (error instanceof LLMError) {
+        throw error;
+      }
+      
+      throw new LLMError('Failed to generate completion', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        prompt
+      });
+    }
+  }
 } 

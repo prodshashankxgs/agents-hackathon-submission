@@ -10,7 +10,9 @@ import {
   SearchIcon,
   XCircleIcon,
   MenuIcon,
-  XIcon
+  XIcon,
+  BrainIcon,
+  ClipboardListIcon
 } from 'lucide-react'
 import { apiService } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
@@ -20,13 +22,15 @@ const TradingInterface = lazy(() => import('./TradingInterface').then(module => 
 const PortfolioOverview = lazy(() => import('./PortfolioOverview').then(module => ({ default: module.PortfolioOverview })))
 const PortfolioBaskets = lazy(() => import('./PortfolioBaskets').then(module => ({ default: module.PortfolioBaskets })))
 const PortfolioPerformance = lazy(() => import('./PortfolioPerformance').then(module => ({ default: module.PortfolioPerformance })))
+const MarketResearch = lazy(() => import('./MarketResearch').then(module => ({ default: module.MarketResearch })))
+const TradingPlans = lazy(() => import('./TradingPlans').then(module => ({ default: module.TradingPlans })))
 
 interface TradingDashboardProps {
   wsConnected: boolean
 }
 
 export const TradingDashboard = memo(({ wsConnected }: TradingDashboardProps) => {
-  const [selectedTab, setSelectedTab] = useState<'trade' | 'portfolio' | 'performance' | 'baskets'>('trade')
+  const [selectedTab, setSelectedTab] = useState<'trade' | 'portfolio' | 'performance' | 'baskets' | 'research' | 'plans'>('trade')
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   // Memoize tab change handler
@@ -70,6 +74,8 @@ export const TradingDashboard = memo(({ wsConnected }: TradingDashboardProps) =>
     { id: 'portfolio' as const, label: 'Portfolio', icon: PieChartIcon },
     { id: 'performance' as const, label: 'Performance', icon: LineChartIcon },
     { id: 'baskets' as const, label: 'Baskets', icon: CreditCardIcon },
+    { id: 'research' as const, label: 'Research', icon: BrainIcon },
+    { id: 'plans' as const, label: 'Plans', icon: ClipboardListIcon },
   ], [])
 
   return (
@@ -225,6 +231,8 @@ export const TradingDashboard = memo(({ wsConnected }: TradingDashboardProps) =>
                   {selectedTab === 'portfolio' && 'Monitor your investment performance'}
                   {selectedTab === 'performance' && 'Analyze returns and benchmarks'}
                   {selectedTab === 'baskets' && 'Explore institutional portfolios'}
+                  {selectedTab === 'research' && 'AI-powered market research and analysis'}
+                  {selectedTab === 'plans' && 'Manage your trading plans and strategies'}
                 </p>
               </div>
             </div>
@@ -280,6 +288,42 @@ export const TradingDashboard = memo(({ wsConnected }: TradingDashboardProps) =>
               {selectedTab === 'baskets' && (
                 <div className="slide-in-bottom">
                   <PortfolioBaskets />
+                </div>
+              )}
+              {selectedTab === 'research' && (
+                <div className="slide-in-bottom">
+                  <Suspense fallback={
+                    <div className="glass-card p-8 sm:p-12 text-center">
+                      <div className="w-16 sm:w-20 h-16 sm:h-20 mx-auto mb-4 sm:mb-6 bg-gray-100 rounded-2xl flex items-center justify-center">
+                        <BrainIcon className="w-8 sm:w-10 h-8 sm:h-10 text-gray-400 animate-pulse" />
+                      </div>
+                      <h3 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2">Loading Research Suite</h3>
+                      <p className="text-sm sm:text-base text-gray-500">Initializing AI research capabilities...</p>
+                      <div className="mt-6 sm:mt-8 flex justify-center">
+                        <div className="spinner" />
+                      </div>
+                    </div>
+                  }>
+                    <MarketResearch />
+                  </Suspense>
+                </div>
+              )}
+              {selectedTab === 'plans' && (
+                <div className="slide-in-bottom">
+                  <Suspense fallback={
+                    <div className="glass-card p-8 sm:p-12 text-center">
+                      <div className="w-16 sm:w-20 h-16 sm:h-20 mx-auto mb-4 sm:mb-6 bg-gray-100 rounded-2xl flex items-center justify-center">
+                        <ClipboardListIcon className="w-8 sm:w-10 h-8 sm:h-10 text-gray-400 animate-pulse" />
+                      </div>
+                      <h3 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2">Loading Trading Plans</h3>
+                      <p className="text-sm sm:text-base text-gray-500">Preparing your strategy management...</p>
+                      <div className="mt-6 sm:mt-8 flex justify-center">
+                        <div className="spinner" />
+                      </div>
+                    </div>
+                  }>
+                    <TradingPlans />
+                  </Suspense>
                 </div>
               )}
             </div>
