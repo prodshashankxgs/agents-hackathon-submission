@@ -99,11 +99,10 @@ export interface OpenAIMessage {
 export interface AppConfig {
   openaiApiKey: string;
   anthropicApiKey: string;
+  perplexityApiKey: string;
   alpacaApiKey: string;
   alpacaSecretKey: string;
   alpacaBaseUrl: string;
-
-  // perplexityApiKey: string; // Removed with 13F/VIP/politician features
   maxDailySpending: number;
   maxPositionSize: number;
   nodeEnv: string;
@@ -397,3 +396,58 @@ export interface OptionsBrokerAdapter extends BrokerAdapter {
 
 // Unified trade intent that supports both stocks and options
 export type UnifiedTradeIntent = TradeIntent | OptionsTradeIntent;
+
+// 13F and Institutional Portfolio Types
+export interface ThirteenFIntent {
+  type: '13f';
+  institution: string;
+  investmentAmount?: number;
+  query: string;
+}
+
+export interface ThirteenFHolding {
+  symbol: string;
+  companyName: string;
+  shares: number;
+  marketValue: number;
+  weightPercent: number;
+  changePercent?: number;
+  quarter?: string;
+}
+
+export interface ThirteenFReport {
+  institution: string;
+  filingDate: string;
+  quarter: string;
+  totalValue: number;
+  totalPositions: number;
+  holdings: ThirteenFHolding[];
+  source: 'perplexity' | 'manual';
+  rawData?: any;
+}
+
+export interface WeightedPortfolioAllocation {
+  symbol: string;
+  companyName: string;
+  targetWeight: number;
+  targetValue: number;
+  targetShares?: number;
+  priority: number;
+}
+
+export interface ThirteenFBasket {
+  id: string;
+  name: string;
+  institution: string;
+  filingDate: string;
+  quarter: string;
+  totalValue: number;
+  allocations: WeightedPortfolioAllocation[];
+  metadata: {
+    source: string;
+    originalTotalValue: number;
+    positionCount: number;
+    rebalanceThreshold: number;
+  };
+  status: 'pending' | 'executed' | 'partial' | 'failed';
+}

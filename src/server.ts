@@ -9,6 +9,8 @@ import { AlpacaAdapter } from './brokers/alpaca-adapter';
 import { ValidationService } from './trading/validation-service';
 import { BasketStorageService } from './storage/basket-storage';
 import { TickerSearchService } from './services/ticker-search-service';
+import { ThirteenFService } from './services/thirteenf-service';
+import { ConsoleLogger } from './infrastructure/logging/ConsoleLogger';
 import { TradeIntent, CLIOptions, TradingError } from './types';
 // import { brokerLimiter } from './utils/concurrency-limiter';
 import { performanceMiddleware, performanceMonitor } from './utils/performance-monitor';
@@ -30,6 +32,8 @@ const broker = new AlpacaAdapter();
 const validator = new ValidationService(broker);
 const basketStorage = new BasketStorageService();
 const tickerSearch = new TickerSearchService();
+const logger = new ConsoleLogger();
+const thirteenFService = new ThirteenFService(logger, broker);
 
 // Development mode warnings
 if (config.nodeEnv === 'development') {
@@ -402,6 +406,146 @@ app.delete('/api/baskets/:basketId', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Delete basket error:', error);
     return res.status(500).json({ error: 'Failed to delete basket' });
+  }
+});
+
+// 13F filing endpoints
+app.post('/api/13f/create-basket', async (req: Request, res: Response) => {
+  try {
+    const { institution, investmentAmount, options = {} } = req.body;
+    
+    if (!institution || !investmentAmount) {
+      return res.status(400).json({ 
+        error: 'Institution name and investment amount are required' 
+      });
+    }
+    
+    if (investmentAmount < 100) {
+      return res.status(400).json({ 
+        error: 'Minimum investment amount is $100' 
+      });
+    }
+    
+    const basket = await thirteenFService.process13FRequest(institution, investmentAmount, {
+      maxPositions: options.maxPositions || 25,
+      minWeight: options.minWeight || 0.5,
+      rebalanceThreshold: options.rebalanceThreshold || 5.0
+    });
+    
+    return res.json({ 
+      success: true, 
+      basket,
+      message: `Successfully created 13F basket for ${institution}` 
+    });
+  } catch (error) {
+    console.error('13F basket creation error:', error);
+    
+    let errorMessage = 'Failed to create 13F basket';
+    if (error instanceof Error) {
+      if (error.message.includes('API key')) {
+        errorMessage = 'Perplexity API key is required for 13F functionality';
+      } else if (error.message.includes('13F data')) {
+        errorMessage = `Could not find 13F data for "${req.body.institution}"`;
+      } else {
+        errorMessage = error.message;
+      }
+    }
+    
+    return res.status(500).json({ error: errorMessage });
+  }
+});
+
+app.post('/api/13f/execute-basket/:basketId', async (req: Request, res: Response) => {
+  try {
+    const { basketId } = req.params;
+    
+    await thirteenFService.executeBasket(basketId);
+    
+    return res.json({ 
+      success: true, 
+      message: 'Basket execution completed' 
+    });
+  } catch (error) {
+    console.error('13F basket execution error:', error);
+    return res.status(500).json({ 
+      error: error instanceof Error ? error.message : 'Failed to execute basket' 
+    });
+  }
+});
+
+app.get('/api/13f/baskets', async (req: Request, res: Response) => {
+  try {
+    const baskets = await thirteenFService.get13FBaskets();
+    return res.json({ baskets });
+  } catch (error) {
+    console.error('Get 13F baskets error:', error);
+    return res.status(500).json({ error: 'Failed to get 13F baskets' });
+  }
+});
+
+// LLM provider endpoints
+app.get('/api/llm/provider', async (req: Request, res: Response) => {
+  try {
+    // For now, return the default provider based on what's configured
+    let provider = 'openai';
+    if (config.anthropicApiKey && !config.openaiApiKey) {
+      provider = 'claude';
+    }
+    
+    return res.json({
+      success: true,
+      provider,
+      message: `Current LLM provider: ${provider}`
+    });
+  } catch (error) {
+    console.error('Get LLM provider error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get LLM provider'
+    });
+  }
+});
+
+app.post('/api/llm/provider', async (req: Request, res: Response) => {
+  try {
+    const { provider } = req.body;
+    
+    if (!provider || !['openai', 'claude'].includes(provider)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid provider (openai or claude) is required'
+      });
+    }
+    
+    // Validate the provider has a configured API key
+    if (provider === 'openai' && !config.openaiApiKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'OpenAI API key is not configured'
+      });
+    }
+    
+    if (provider === 'claude' && !config.anthropicApiKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'Anthropic API key is not configured'
+      });
+    }
+    
+    // Update the parsing service provider
+    optimizedParsingService.setLLMProvider(provider);
+    
+    return res.json({
+      success: true,
+      provider,
+      message: `LLM provider set to: ${provider}`
+    });
+  } catch (error) {
+    console.error('Set LLM provider error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to set LLM provider'
+    });
   }
 });
 

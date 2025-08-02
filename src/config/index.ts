@@ -10,6 +10,7 @@ console.log('🔍 Environment variables debug:');
 console.log('Current working directory:', process.cwd());
 console.log('OPENAI_API_KEY exists:', !!process.env.OPENAI_API_KEY);
 console.log('ANTHROPIC_API_KEY exists:', !!process.env.ANTHROPIC_API_KEY);
+console.log('PERPLEXITY_API_KEY exists:', !!process.env.PERPLEXITY_API_KEY);
 console.log('ALPACA_API_KEY exists:', !!process.env.ALPACA_API_KEY);
 
 
@@ -21,6 +22,7 @@ export function loadConfig(): AppConfig {
     const missingVars = [];
     if (!process.env.OPENAI_API_KEY) missingVars.push('OPENAI_API_KEY');
     if (!process.env.ANTHROPIC_API_KEY) missingVars.push('ANTHROPIC_API_KEY');
+    if (!process.env.PERPLEXITY_API_KEY) missingVars.push('PERPLEXITY_API_KEY');
     if (!process.env.ALPACA_API_KEY) missingVars.push('ALPACA_API_KEY');
     if (!process.env.ALPACA_SECRET_KEY) missingVars.push('ALPACA_SECRET_KEY');
     
@@ -30,6 +32,7 @@ export function loadConfig(): AppConfig {
       console.warn('----------------------------------------');
       console.warn('OPENAI_API_KEY=your_openai_api_key');
       console.warn('ANTHROPIC_API_KEY=your_anthropic_api_key');
+      console.warn('PERPLEXITY_API_KEY=your_perplexity_api_key');
       console.warn('ALPACA_API_KEY=your_alpaca_api_key');
       console.warn('ALPACA_SECRET_KEY=your_alpaca_secret_key');
       console.warn('ALPACA_BASE_URL=https://paper-api.alpaca.markets');
@@ -39,6 +42,7 @@ export function loadConfig(): AppConfig {
       console.warn('\n🔗 Get your API keys from:');
       console.warn('   - OpenAI: https://platform.openai.com/api-keys');
       console.warn('   - Anthropic: https://console.anthropic.com/');
+      console.warn('   - Perplexity: https://docs.perplexity.ai/ (for AI-powered 13F analysis)');
       console.warn('   - Alpaca: https://app.alpaca.markets/');
 
       // console.warn('   - Perplexity: https://docs.perplexity.ai/ (for AI-powered 13F analysis)'); // Removed with 13F/VIP features
@@ -64,11 +68,10 @@ export function loadConfig(): AppConfig {
   return {
     openaiApiKey: process.env.OPENAI_API_KEY || '',
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
+    perplexityApiKey: process.env.PERPLEXITY_API_KEY || '',
     alpacaApiKey: process.env.ALPACA_API_KEY || '',
     alpacaSecretKey: process.env.ALPACA_SECRET_KEY || '',
     alpacaBaseUrl: process.env.ALPACA_BASE_URL || 'https://paper-api.alpaca.markets',
-
-    // perplexityApiKey: process.env.PERPLEXITY_API_KEY || '', // Removed with 13F/VIP/politician features
     maxDailySpending: parseInt(process.env.MAX_DAILY_SPENDING || '1000'),
     maxPositionSize: parseInt(process.env.MAX_POSITION_SIZE || '500'),
     nodeEnv: process.env.NODE_ENV || 'development',

@@ -4,6 +4,8 @@ import { UnifiedTradeProcessor } from '../llm/unified-trade-processor';
 import { AdvancedTradingService } from '../llm/trading';
 import { AlpacaAdapter } from '../brokers/alpaca-adapter';
 import { ValidationService } from '../trading/validation-service';
+import { ThirteenFService } from '../services/thirteenf-service';
+import { ConsoleLogger } from '../infrastructure/logging/ConsoleLogger';
 import { TradeIntent, UnifiedTradeIntent, OptionsTradeIntent, AccountInfo, TradeResult, AdvancedTradeIntent } from '../types';
 
 interface ChatContext {
@@ -17,6 +19,8 @@ export class TradingChatbot {
   private advancedTrading: AdvancedTradingService;
   private broker: AlpacaAdapter;
   private validator: ValidationService;
+  private thirteenFService: ThirteenFService;
+  private logger: ConsoleLogger;
   private context: ChatContext;
 
   constructor() {
@@ -24,6 +28,8 @@ export class TradingChatbot {
     this.advancedTrading = new AdvancedTradingService();
     this.broker = new AlpacaAdapter();
     this.validator = new ValidationService(this.broker);
+    this.logger = new ConsoleLogger();
+    this.thirteenFService = new ThirteenFService(this.logger, this.broker);
     
     this.context = {
       conversationHistory: []
@@ -94,6 +100,8 @@ export class TradingChatbot {
         await this.handleAccountIntent();
       } else if (simpleIntent.type === 'price_check' && simpleIntent.symbol) {
         await this.handleMarketInfo(simpleIntent.symbol);
+      } else if (simpleIntent.type === '13f' && simpleIntent.institution) {
+        await this.handle13FIntent(simpleIntent.institution, simpleIntent.amount);
       } else {
         // Try unified trade processing first
         try {
@@ -130,8 +138,46 @@ export class TradingChatbot {
     }
   }
 
-  private async determineSimpleIntent(message: string): Promise<{ type: string; symbol?: string }> {
+  private async determineSimpleIntent(message: string): Promise<{ type: string; symbol?: string; institution?: string; amount?: number }> {
     const lowerMessage = message.toLowerCase();
+    
+    // Check for 13F filing requests
+    if (lowerMessage.includes('13f') || 
+        (lowerMessage.includes('bridgewater') && (lowerMessage.includes('filing') || lowerMessage.includes('portfolio') || lowerMessage.includes('holdings'))) ||
+        (lowerMessage.includes('berkshire') && (lowerMessage.includes('filing') || lowerMessage.includes('portfolio') || lowerMessage.includes('holdings'))) ||
+        (lowerMessage.includes('show me') && (lowerMessage.includes('bridgewater') || lowerMessage.includes('berkshire') || lowerMessage.includes('13f')))) {
+      
+      // Extract institution name
+      let institution = '';
+      if (lowerMessage.includes('bridgewater')) {
+        institution = 'Bridgewater Associates';
+      } else if (lowerMessage.includes('berkshire')) {
+        institution = 'Berkshire Hathaway';
+      } else {
+        // Try to extract institution from the message
+        const institutionPatterns = [
+          /(?:show me|get|fetch)\s+([^'s\n]+?)(?:'s)?\s+(?:13f|filing|portfolio)/i,
+          /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:13f|filing)/i
+        ];
+        
+        for (const pattern of institutionPatterns) {
+          const match = message.match(pattern);
+          if (match?.[1]) {
+            institution = match[1].trim();
+            break;
+          }
+        }
+      }
+      
+      // Extract investment amount if specified
+      let amount = undefined;
+      const amountMatch = message.match(/\$([0-9,]+(?:\.[0-9]{2})?)/);
+      if (amountMatch) {
+        amount = parseFloat(amountMatch[1].replace(/,/g, ''));
+      }
+      
+      return { type: '13f', institution, amount };
+    }
     
     // Check for account/portfolio keywords
     if (lowerMessage.includes('account') || lowerMessage.includes('portfolio') || 
@@ -649,6 +695,132 @@ export class TradingChatbot {
     }
     
     console.log('\n' + chalk.gray('Note: These are AI-generated recommendations. Always do your own due diligence.'));
+  }
+
+  /**
+   * Handle 13F filing requests - fetch institutional holdings and create investable basket
+   */
+  private async handle13FIntent(institution: string, amount?: number): Promise<void> {
+    try {
+      console.log(chalk.cyan(`📊 Fetching ${institution}'s latest 13F filing...`));
+      console.log(chalk.gray('This may take a moment as I search for the most recent data.\n'));
+
+      // Get investment amount if not provided
+      let investmentAmount = amount;
+      if (!investmentAmount) {
+        const response = await inquirer.prompt({
+          type: 'input',
+          name: 'amount',
+          message: 'How much would you like to invest in this basket?',
+          default: '10000',
+          validate: (input) => {
+            const num = parseFloat(input.replace(/[,$]/g, ''));
+            if (isNaN(num) || num <= 0) {
+              return 'Please enter a valid positive number';
+            }
+            if (num < 100) {
+              return 'Minimum investment amount is $100';
+            }
+            return true;
+          }
+        });
+        investmentAmount = parseFloat(response.amount.replace(/[,$]/g, ''));
+      }
+
+      // Process the 13F request
+      const basket = await this.thirteenFService.process13FRequest(institution, investmentAmount, {
+        maxPositions: 25,
+        minWeight: 0.5,
+        rebalanceThreshold: 5.0
+      });
+
+      console.log(chalk.green('✅ Successfully created 13F basket!\n'));
+      
+      // Display basket summary
+      console.log(chalk.bold(`${basket.name}`));
+      console.log(chalk.gray(`Institution: ${basket.institution}`));
+      console.log(chalk.gray(`Total Value: ${this.formatCurrency(basket.totalValue)}`));
+      console.log(chalk.gray(`Positions: ${basket.allocations.length}`));
+      console.log(chalk.gray(`Basket ID: ${basket.id}\n`));
+
+      // Show top allocations
+      console.log(chalk.bold('Top Holdings:'));
+      const topHoldings = basket.allocations.slice(0, 10);
+      
+      topHoldings.forEach((allocation: any, index: number) => {
+        const weight = (allocation.targetWeight * 100).toFixed(1);
+        const value = this.formatCurrency(allocation.targetValue);
+        console.log(`${index + 1}. ${chalk.bold(allocation.symbol)} - ${allocation.companyName}`);
+        console.log(`   Weight: ${weight}% | Value: ${value}\n`);
+      });
+
+      if (basket.allocations.length > 10) {
+        console.log(chalk.gray(`... and ${basket.allocations.length - 10} more positions\n`));
+      }
+
+      // Ask if user wants to execute the basket
+      const { shouldExecute } = await inquirer.prompt({
+        type: 'confirm',
+        name: 'shouldExecute',
+        message: 'Would you like to execute trades for this basket now?',
+        default: false
+      });
+
+      if (shouldExecute) {
+        console.log(chalk.yellow('\n🔄 Executing basket trades...'));
+        console.log(chalk.gray('This will place market orders for all positions.\n'));
+
+        try {
+          await this.thirteenFService.executeBasket(basket.id);
+          console.log(chalk.green('✅ Basket execution completed!'));
+          console.log(chalk.gray('Check your portfolio to see the executed positions.'));
+        } catch (error) {
+          console.log(chalk.red('❌ Some trades failed to execute.'));
+          console.log(chalk.gray('The basket has been saved and you can retry execution later.'));
+          if (error instanceof Error) {
+            console.log(chalk.gray(`Error: ${error.message}`));
+          }
+        }
+      } else {
+        console.log(chalk.blue('\n📝 Basket saved for later execution.'));
+        console.log(chalk.gray('You can execute it later from the Portfolio Baskets tab.'));
+      }
+
+      // Add context to conversation
+      this.context.conversationHistory.push({
+        role: 'assistant',
+        content: `Created 13F basket for ${institution} with ${basket.allocations.length} positions totaling ${this.formatCurrency(basket.totalValue)}`
+      });
+
+    } catch (error) {
+      console.log(chalk.red('❌ Failed to process 13F request.'));
+      
+      if (error instanceof Error) {
+        if (error.message.includes('API key')) {
+          console.log(chalk.yellow('\n💡 To use 13F functionality, you need a Perplexity API key.'));
+          console.log(chalk.gray('Add PERPLEXITY_API_KEY to your .env file.'));
+          console.log(chalk.gray('Get one at: https://docs.perplexity.ai/'));
+        } else if (error.message.includes('13F data')) {
+          console.log(chalk.yellow(`\n💡 Could not find recent 13F data for "${institution}".`));
+          console.log(chalk.gray('Try a different institution name or check if they file 13F forms.'));
+          console.log(chalk.gray('Examples: "Bridgewater Associates", "Berkshire Hathaway", "Renaissance Technologies"'));
+        } else {
+          console.log(chalk.gray(`Error: ${error.message}`));
+        }
+      }
+    }
+  }
+
+  /**
+   * Format currency for display
+   */
+  private formatCurrency(amount: number): string {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
   }
 
 } 

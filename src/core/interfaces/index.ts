@@ -505,14 +505,3 @@ export interface LLMProviderResponse {
   timestamp: string
 }
 
-// Get current LLM provider
-async function getCurrentLLMProvider(): Promise<LLMProvider> {
-  const response = await api.get('/llm/provider')
-  return response.data
-}
-
-// Set LLM provider
-async function setLLMProvider(provider: 'openai' | 'claude'): Promise<LLMProviderResponse> {
-  const response = await api.post('/llm/provider', { provider })
-  return response.data
-}
